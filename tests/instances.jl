@@ -1,7 +1,5 @@
 using Test
 
-include("../src/jos.jl")
-
 using .Jos
 
 @testset "New Throws" begin
