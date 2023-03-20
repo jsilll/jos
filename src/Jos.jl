@@ -114,15 +114,19 @@ end
 
 # ---- Multi Methods ----
 
+function (mm::MMultiMethod)(args...; kwargs...)::Any
+    mm.procedure(args...; kwargs...)
+end
+
 function method_specializers(mm::MMultiMethod)::Vector{MClass}
     mm.specializers
 end
 
 # ---- Generic Functions ----
 
-function (f::MGenericFunction)(; args...)::Any
-    if length(f.methods) == 0
-        error("No aplicable method for function $(f.name) with arguments $(args)")
+function (gf::MGenericFunction)(args...; kwargs...)::Any
+    if length(gf.methods) == 0
+        error("No aplicable method for function $(gf.name) with arguments $(args)")
     end
     # TODO: compute the most specific method
     # note: needs class precedence list to work?
