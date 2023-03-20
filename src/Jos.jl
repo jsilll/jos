@@ -1,22 +1,39 @@
 module Jos
 
-# ---- Classes ----
-
 struct MClass
     name::Symbol
     direct_slots::Vector{Symbol}
     direct_superclasses::Vector{MClass}
 end
 
-Top = MClass(:Top, Symbol[], MClass[]) 
+struct Instance
+    class::MClass
+    slots::Dict{Symbol,Any}
+end
 
-Object = MClass(:Object, Symbol[], MClass[Top]) 
+struct MMultiMethod
+    procedure::Function
+    generic_function::Any
+    specializers::Vector{MClass}
+end
 
-Class = MClass(:Class, Symbol[], MClass[Object]) 
+struct MGenericFunction
+    name::Symbol
+    params::Vector{Symbol}
+    methods::Vector{MMultiMethod}
+end
 
-MultiMethod = MClass(:MultiMethod, Symbol[], MClass[Class, Object])
+# ---- Classes ----
 
-GenericFunction = MClass(:GenericFunction, Symbol[], MClass[Class, Object])
+Top = MClass(:Top, Symbol[], MClass[])
+
+Object = MClass(:Object, Symbol[], MClass[Top])
+
+Class = MClass(:Class, collect(fieldnames(MClass)), MClass[Object])
+
+MultiMethod = MClass(:MultiMethod, collect(fieldnames(MMultiMethod)), MClass[Top])
+
+GenericFunction = MClass(:GenericFunction, collect(fieldnames(MGenericFunction)), MClass[MultiMethod])
 
 
 BuiltInClass = MClass(:BuiltInClass, Symbol[], MClass[Class])
@@ -26,22 +43,14 @@ _Int64 = MClass(:_Int64, Symbol[:value], MClass[BuiltInClass])
 _String = MClass(:_String, Symbol[:value], MClass[BuiltInClass])
 
 
-function class_of(_::MClass)
+function class_of(_::MClass)::MClass
     Class
 end
 
-function Base.show(io::IO, cls::MClass) 
-    print(io, "<Class $(cls.name)>")
-end
-
 function Base.getproperty(cls::MClass, name::Symbol)
-    if cls === Class && name === :slots
-        return [:name, :direct_slots, :direct_superclasses]
-    else if cls === MultiMethod && name === :slots
-        return [:name, :body, :params]
-    else if cls === GenericFunction && name === :slots
-        return [:name, :params, :methods]
-    else 
+    if name === :slots
+        return collect(fieldnames(MClass))
+    else
         return Base.getfield(cls, name)
     end
 end
@@ -51,11 +60,6 @@ end
 # note: if super is [], then super = [Object]
 
 # ---- Instances ----
-
-struct Instance
-    class::MClass
-    slots::Dict{Symbol,Any}
-end
 
 function class_of(obj::Instance)::MClass
     Base.getfield(obj, :class)
@@ -67,7 +71,7 @@ function new(class::MClass; args...)::Instance
     end
 
     slots = Dict{Symbol,Any}()
-    # TODO: handle inherited slots
+    # TODO: handle inherited slots ???
     for (k, v) in args
         if !(k in class.direct_slots)
             error("Invalid slot name: $k")
@@ -78,38 +82,30 @@ function new(class::MClass; args...)::Instance
 end
 
 function Base.getproperty(obj::Instance, name::Symbol)
-    Base.getfield(obj, :slots)[name]
+    slots = Base.getfield(obj, :slots)
+    if haskey(slots, name)
+        return slots[name]
+    else
+        error("Invalid slot name: $name")
+    end
 end
 
 function Base.setproperty!(obj::Instance, name::Symbol, value)
-    Base.getfield(obj, :slots)[name] = value
+    slots = Base.getfield(obj, :slots)
+    if haskey(slots, name)
+        slots[name] = value
+    else
+        error("Invalid slot name: $name")
+    end
 end
 
-function Base.show(io::IO, obj::Instance)
-    print(io, "<Instance $(obj.class.name)>")
-end
+# ---- Multi Methods ----
 
-# ---- Generic Functions and Methods ----
-
-struct MMethod
-    name::Symbol
-    body::Function
-    params::Vector{Tuple{Symbol, MClass}}
-end
-
-function class_of(_::MMethod)::MClass
+function class_of(_::MMultiMethod)::MClass
     MultiMethod
 end
 
-function Base.show(io::IO, m::MMethod)
-    print(io, "<Method $(m.name) $(m.params)>")
-end
-
-struct MGenericFunction
-    name::Symbol
-    params::Vector{Symbol}
-    methods::Vector{MMethod}
-end
+# ---- Generic Functions ----
 
 function class_of(_::MGenericFunction)::MClass
     GenericFunction
@@ -120,13 +116,9 @@ function (f::MGenericFunction)(; args...)::Any
         error("No aplicable method for function $(f.name) with arguments $(args)")
     end
 
-    methods = sort(f.methods, by = x -> length(x.params))
     # TODO: compute the most specific method
     # note: needs class precedence list to work?
-end
-
-function Base.show(io::IO, f::MGenericFunction)
-    print(io, "<GenericFunction $(f.name) with $(len(f.methods)) methods>")
+    # TODO: get the applicable methods
 end
 
 # TODO: @defgeneric name(params)
@@ -135,5 +127,12 @@ end
 # note: should have the same params as the generic function
 # note: an omited param means that its typed as Top
 # note: if the corresponding generic function doesnt exist, it should be created
+
+# ---- Pre-Defined Generic Functions ----
+
+print_object = MGenericFunction(:print_object, Symbol[:obj, :io], MMultiMethod[])
+
+# push!(print_object.methods, MMultiMethod((obj, io) -> print(io,
+#         "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"), MClass[Object, Top]))
 
 end # module Jos
