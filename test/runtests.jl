@@ -1,9 +1,9 @@
 using Test, Jos
 
-# Create a new class
+# -- Complex Numbers Example --
 ComplexNumber = Jos.MClass(:ComplexNumber, [:real, :imag], [Jos.Object])
 
-# Create some instances of the new class
+# Create some instances of complex numbers
 c1 = Jos.new(ComplexNumber, real=1, imag=2)
 c2 = Jos.new(ComplexNumber, real=3, imag=4)
 
@@ -13,6 +13,15 @@ add = Jos.MGenericFunction(:add, [:x, :y], [])
 # Specialize Generic Function for ComplexNumber
 push!(add.methods, Jos.MMultiMethod(
     (a, b) -> Jos.new(ComplexNumber, real=a.real + b.real, imag=a.imag + b.imag), add, [ComplexNumber, ComplexNumber]))
+
+# -- Circle Example -- 
+ColorMixin = Jos.MClass(:ColorMixin, [:color], [Jos.Object])
+
+Shape = Jos.MClass(:Shape, [], [Jos.Object])
+
+Circle = Jos.MClass(:Circle, [:center, :radius], [Shape])
+
+ColoredCircle = Jos.MClass(:ColoredCircle, [], [Circle, ColorMixin])
 
 # -- Tests Start --
 
@@ -83,7 +92,7 @@ end
     # TODO: @defmethod
 end
 
-@testset "2.5 Pre-defined Generic Functions and Methods" begin 
+@testset "2.5 Pre-defined Generic Functions and Methods" begin
     # TODO
 end
 
@@ -140,7 +149,14 @@ end
 end
 
 @testset "2.15 Introspection" begin
-    # TODO
+    @test Jos.class_name(Circle) === :Circle
+    @test Jos.class_direct_slots(Circle) == [:center, :radius]
+    @test Jos.class_direct_slots(ColoredCircle) == []
+    # TODO: @test Jos.class_slots(ColoredCircle) == [:center, :radius, :color]
+    @test Jos.class_direct_superclasses(ColoredCircle) == [Circle, ColorMixin]
+    # TODO: @test Jos.class_cpl(ColoredCircle) == ...
+    # TODO: @test Jos.generic_methods(draw) == ...
+    # TODO: @test Jos.method_specializers(generic_methods(draw)[1]) == ...
 end
 
 @testset "2.16 Meta-Object Protocols" begin

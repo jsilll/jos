@@ -1,5 +1,7 @@
 module Jos
 
+# ---- Internal Structs ----
+
 struct MClass
     name::Symbol
     direct_slots::Vector{Symbol}
@@ -23,7 +25,7 @@ struct MGenericFunction
     methods::Vector{MMultiMethod}
 end
 
-# ---- Classes ----
+# ---- Base ----
 
 Top = MClass(:Top, Symbol[], MClass[])
 
@@ -42,28 +44,39 @@ _Int64 = MClass(:_Int64, Symbol[:value], MClass[BuiltInClass])
 
 _String = MClass(:_String, Symbol[:value], MClass[BuiltInClass])
 
-
-function class_of(_::MClass)::MClass
-    Class
-end
+# ---- Classes ----
 
 function Base.getproperty(cls::MClass, name::Symbol)
     if name === :slots
-        return collect(fieldnames(MClass))
+        if cls === Class
+            return cls.direct_slots
+        else
+            # TODO: add inherited slots
+            return cls.direct_slots
+        end
     else
         return Base.getfield(cls, name)
     end
 end
 
-# TODO:
-# @defclass(name, super, slots)
-# note: if super is [], then super = [Object]
+function class_name(cls::MClass)::Symbol
+    cls.name
+end
+
+function class_slots(cls::MClass)::Vector{Symbol}
+    # TODO: add inherited slots
+    cls.direct_slots
+end
+
+function class_direct_slots(cls::MClass)::Vector{Symbol}
+    cls.direct_slots
+end
+
+function class_direct_superclasses(cls::MClass)::Vector{MClass}
+    cls.direct_superclasses
+end
 
 # ---- Instances ----
-
-function class_of(obj::Instance)::MClass
-    Base.getfield(obj, :class)
-end
 
 function new(class::MClass; args...)::Instance
     if length(args) != length(class.direct_slots)
@@ -71,7 +84,7 @@ function new(class::MClass; args...)::Instance
     end
 
     slots = Dict{Symbol,Any}()
-    # TODO: handle inherited slots ???
+    # TODO: handle inherited slots!
     for (k, v) in args
         if !(k in class.direct_slots)
             error("Invalid slot name: $k")
@@ -101,32 +114,24 @@ end
 
 # ---- Multi Methods ----
 
-function class_of(_::MMultiMethod)::MClass
-    MultiMethod
+function method_specializers(mm::MMultiMethod)::Vector{MClass}
+    mm.specializers
 end
 
 # ---- Generic Functions ----
-
-function class_of(_::MGenericFunction)::MClass
-    GenericFunction
-end
 
 function (f::MGenericFunction)(; args...)::Any
     if length(f.methods) == 0
         error("No aplicable method for function $(f.name) with arguments $(args)")
     end
-
     # TODO: compute the most specific method
     # note: needs class precedence list to work?
     # TODO: get the applicable methods
 end
 
-# TODO: @defgeneric name(params)
-
-# TODO: @defmethod name(typed_params) = body
-# note: should have the same params as the generic function
-# note: an omited param means that its typed as Top
-# note: if the corresponding generic function doesnt exist, it should be created
+function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
+    gf.methods
+end
 
 # ---- Pre-Defined Generic Functions ----
 
@@ -134,5 +139,23 @@ print_object = MGenericFunction(:print_object, Symbol[:obj, :io], MMultiMethod[]
 
 # push!(print_object.methods, MMultiMethod((obj, io) -> print(io,
 #         "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"), MClass[Object, Top]))
+
+# ---- Class Of ----
+
+function class_of(_::MClass)::MClass
+    Class
+end
+
+function class_of(obj::Instance)::MClass
+    Base.getfield(obj, :class)
+end
+
+function class_of(_::MMultiMethod)::MClass
+    MultiMethod
+end
+
+function class_of(_::MGenericFunction)::MClass
+    GenericFunction
+end
 
 end # module Jos
