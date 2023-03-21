@@ -76,6 +76,15 @@ function class_direct_superclasses(cls::MClass)::Vector{MClass}
     cls.direct_superclasses
 end
 
+macro defclass(name::Symbol, superclasses::Vector{MClass}, slots::Vector{Symbol})
+    if isempty(superclasses)
+        global c = MClass(name,slots,Object)
+    else
+        global c = MClass(name,slots,superclasses)
+    return c
+    end
+end
+
 # ---- Instances ----
 
 function new(class::MClass; args...)::Instance
