@@ -114,8 +114,8 @@ end
 
 # ---- Multi Methods ----
 
-function (mm::MMultiMethod)(args...; kwargs...)::Any
-    mm.procedure(args...; kwargs...)
+function (mm::MMultiMethod)(args...)::Any
+    mm.procedure(args...)
 end
 
 function method_specializers(mm::MMultiMethod)::Vector{MClass}
@@ -124,13 +124,39 @@ end
 
 # ---- Generic Functions ----
 
-function (gf::MGenericFunction)(args...; kwargs...)::Any
-    if length(gf.methods) == 0
+function (gf::MGenericFunction)(args...)::Any
+    applicable_methods = MMultiMethod[]
+    for method in gf.methods
+        is_applicable = true
+        for (i, specializer) in enumerate(method.specializers)
+            if !(class_of(specializer) in compute_cpl(args[i]))
+                is_applicable = false
+                break
+            end
+        end
+
+        if is_applicable
+            push!(applicable_methods, method)
+        end
+    end
+
+    if length(applicable_methods) == 0
         error("No aplicable method for function $(gf.name) with arguments $(args)")
     end
-    # TODO: compute the most specific method
-    # note: needs class precedence list to work?
-    # TODO: get the applicable methods
+
+    function specificity(mm::MMultiMethod, args::Vector{MClass})::Int
+        res = 0
+        for (i, specializer) in enumerate(mm.specializers)
+            res = res * 10 + findfirst(x -> x === specializer, args[i])
+        end
+        return -res
+    end
+
+    sort!(applicable_methods, by = x -> specificity(x, args))
+
+    applicable_methods[1](args...)
+
+    # TODO: call_next_method??
 end
 
 function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
