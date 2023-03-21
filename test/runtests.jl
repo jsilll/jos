@@ -141,7 +141,15 @@ end
 end
 
 @testset "2.13 Class Precedence List" begin
-    # TODO 
+    # TODO
+    A = Jos.MClass(:A, [], [])
+    B = Jos.MClass(:B, [], [])
+    C = Jos.MClass(:C, [], [])
+    D = Jos.MClass(:D, [], [A, B])
+    E = Jos.MClass(:E, [], [A, C])
+    F = Jos.MClass(:F, [], [D, E])
+
+    @test Jos.compute_cpl(F) == Vector{Jos.MClass}([F, D, E, A, B, C])
 end
 
 @testset "2.14 Built-In Classes" begin

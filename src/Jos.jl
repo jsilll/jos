@@ -162,4 +162,38 @@ function class_of(_::MGenericFunction)::MClass
     GenericFunction
 end
 
+# ---- Class Precedence List ----
+
+function Base.print(io::IO, cls::MClass)
+    print(io, "<Class ", cls.name, ">")
+end
+
+function Base.println(io::IO, cls_vector::Vector{MClass})
+    println(io, "[", join(cls_vector, ", "), "]")
+end
+
+function compute_cpl(cls::MClass)::Vector{MClass}
+    cpl = MClass[cls]
+
+    function compute_cpl_aux(superclass_vector::Vector{MClass})
+        indirect_superclasses = MClass[]
+
+        for superclass in superclass_vector
+            if superclass in cpl
+                continue
+            end
+            push!(cpl, superclass)
+            indirect_superclasses = union(indirect_superclasses, superclass.direct_superclasses)
+        end
+
+        if length(indirect_superclasses) > 0
+            compute_cpl_aux(indirect_superclasses)
+        end
+    end
+
+    compute_cpl_aux(cls.direct_superclasses)
+
+    return cpl
+end
+
 end # module Jos
