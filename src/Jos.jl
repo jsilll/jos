@@ -4,8 +4,14 @@ module Jos
 
 struct MClass
     name::Symbol
+    cpl::Vector{MClass}
+    slots::Vector{Symbol}
+    defaulted::Dict{Symbol,Any}
     direct_slots::Vector{Symbol}
     direct_superclasses::Vector{MClass}
+
+    MClass(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}) =
+        new(name, MClass[], Dict{Symbol, Any}(), Symbol[], direct_slots, direct_superclasses)
 end
 
 struct Instance
@@ -25,47 +31,22 @@ struct MGenericFunction
     methods::Vector{MMultiMethod}
 end
 
-# ---- Base ----
-
-Top = MClass(:Top, Symbol[], MClass[])
-
-Object = MClass(:Object, Symbol[], MClass[Top])
-
-Class = MClass(:Class, collect(fieldnames(MClass)), MClass[Object])
-
-MultiMethod = MClass(:MultiMethod, collect(fieldnames(MMultiMethod)), MClass[Top])
-
-GenericFunction = MClass(:GenericFunction, collect(fieldnames(MGenericFunction)), MClass[MultiMethod])
-
-
-BuiltInClass = MClass(:BuiltInClass, Symbol[], MClass[Class])
-
-_Int64 = MClass(:_Int64, Symbol[:value], MClass[BuiltInClass])
-
-_String = MClass(:_String, Symbol[:value], MClass[BuiltInClass])
-
 # ---- Classes ----
 
 function Base.getproperty(cls::MClass, name::Symbol)
-    if name === :slots
-        if cls === Class
-            return cls.direct_slots
-        else
-            # TODO: add inherited slots
-            return cls.direct_slots
-        end
-    else
-        return Base.getfield(cls, name)
-    end
+    return Base.getfield(cls, name)
 end
 
 function class_name(cls::MClass)::Symbol
     cls.name
 end
 
+function class_cpl(cls::MClass)::Vector{MClass}
+    cls.cpl
+end
+
 function class_slots(cls::MClass)::Vector{Symbol}
-    # TODO: add inherited slots
-    cls.direct_slots
+    cls.slots
 end
 
 function class_direct_slots(cls::MClass)::Vector{Symbol}
@@ -76,22 +57,65 @@ function class_direct_superclasses(cls::MClass)::Vector{MClass}
     cls.direct_superclasses
 end
 
+# ---- Base Classes ----
+
+Top = MClass(:Top, Symbol[], MClass[])
+
+Object = MClass(:Object, Symbol[], MClass[Top])
+Object.cpl = MClass[Object, Top]
+Object.slots = Symbol[]
+
+Class = MClass(:Class, collect(fieldnames(MClass)), MClass[Object])
+Class.cpl = MClass[Class, Object, Top]
+Class.slots = Class.direct_slots
+
+MultiMethod = MClass(:MultiMethod, collect(fieldnames(MMultiMethod)), MClass[Top])
+MultiMethod.cpl = MClass[MultiMethod, Top]
+MultiMethod.slots = MultiMethod.direct_slots
+
+GenericFunction = MClass(:GenericFunction, collect(fieldnames(MGenericFunction)), MClass[Top])
+GenericFunction.cpl = MClass[GenericFunction, Top]
+GenericFunction.slots = GenericFunction.direct_slots
+
+BuiltInClass = MClass(:BuiltInClass, Symbol[], MClass[Class])
+BuiltInClass.cpl = MClass[BuiltInClass, Class, Object, Top]
+BuiltInClass.slots = BuiltInClass.direct_slots
+
+_Int64 = MClass(:_Int64, [:value], MClass[BuiltInClass])
+_Int64.cpl = MClass[_Int64, BuiltInClass, Class, Object, Top]
+_Int64.slots = _Int64.direct_slots
+
+_String = MClass(:_String, [:value], MClass[BuiltInClass])
+_String.cpl = MClass[_String, BuiltInClass, Class, Object, Top]
+_String.slots = _String.direct_slots
+
 # ---- Instances ----
 
-function new(class::MClass; args...)::Instance
-    if length(args) != length(class.direct_slots)
-        error("Invalid number of slots")
+function new(cls::MClass; kwargs...)::Instance
+    if length(kwargs) < (lengt(cls.slots) - length(cls.defaulted))
+        error("Too few arguments")
     end
 
-    slots = Dict{Symbol,Any}()
-    # TODO: handle inherited slots!
+    if length(kwargs) > length(cls.slots)
+        error("Too many arguments")
+    end
+
+    slots = cls.defaulted
+
     for (k, v) in args
-        if !(k in class.direct_slots)
+        if !(k in cls.slots)
             error("Invalid slot name: $k")
         end
         slots[k] = v
     end
-    Instance(class, slots)
+    
+    for slot in cls.slots
+        if !haskey(slots, slot)
+            error("Missing slot: $slot")
+        end
+    end
+
+    Instance(cls, slots)
 end
 
 function Base.getproperty(obj::Instance, name::Symbol)
@@ -112,7 +136,7 @@ function Base.setproperty!(obj::Instance, name::Symbol, value)
     end
 end
 
-# ---- Multi Methods ----
+# ---- MultiMethods ----
 
 function (mm::MMultiMethod)(args...)::Any
     mm.procedure(args...)
@@ -125,11 +149,12 @@ end
 # ---- Generic Functions ----
 
 function (gf::MGenericFunction)(args...)::Any
+    # Compute applicable methods
     applicable_methods = MMultiMethod[]
     for method in gf.methods
         is_applicable = true
         for (i, specializer) in enumerate(method.specializers)
-            if !(class_of(specializer) in compute_cpl(args[i]))
+            if !(specializer in class_of(args[i]).cpl)
                 is_applicable = false
                 break
             end
@@ -152,7 +177,8 @@ function (gf::MGenericFunction)(args...)::Any
         return -res
     end
 
-    sort!(applicable_methods, by = x -> specificity(x, args))
+    classes = [class_of(arg) for arg in args]    
+    sort!(applicable_methods, by=x -> specificity(x, classes), rev=true)
 
     applicable_methods[1](args...)
 
@@ -188,15 +214,7 @@ function class_of(_::MGenericFunction)::MClass
     GenericFunction
 end
 
-# ---- Class Precedence List ----
-
-function Base.print(io::IO, cls::MClass)
-    print(io, "<Class ", cls.name, ">")
-end
-
-function Base.println(io::IO, cls_vector::Vector{MClass})
-    println(io, "[", join(cls_vector, ", "), "]")
-end
+# ---- Class Precdence List ----
 
 function compute_cpl(cls::MClass)::Vector{MClass}
     cpl = MClass[cls]
@@ -221,5 +239,21 @@ function compute_cpl(cls::MClass)::Vector{MClass}
 
     return cpl
 end
+
+# ---- Base Macros ----
+
+macro defclass(name, direct_superclasses, direct_slots)
+    if @isdefined(name)
+        @warn("WARNING: '$name' already defined. Overwriting with new definition.")
+    end
+
+    if isempty(superclasses)
+        global c = MClass(name,slots,Object)
+    else
+        global c = MClass(name,slots,superclasses)
+    return c
+    end
+end
+
 
 end # module Jos
