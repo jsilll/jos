@@ -2,7 +2,7 @@ module Jos
 
 # ---- Internal Structs ----
 
-struct MClass
+mutable struct MClass
     name::Symbol
     cpl::Vector{MClass}
     slots::Vector{Symbol}
@@ -23,13 +23,15 @@ struct Instance
     slots::Dict{Symbol,Any}
 end
 
+abstract type MGenericFunctionAbstract end
+
 struct MMultiMethod
     procedure::Function
-    generic_function::Any # DUVIDA: Tipo disto?
     specializers::Vector{MClass}
+    generic_function::MGenericFunctionAbstract
 end
 
-struct MGenericFunction
+struct MGenericFunction <: MGenericFunctionAbstract
     name::Symbol
     params::Vector{Symbol}
     methods::Vector{MMultiMethod}
@@ -37,10 +39,10 @@ end
 
 # ---- Internal Class Precedence List ----
 
-function _compute_cpl(cls::MClass)::Vector{MClass}
+function _compute_class_cpl(cls::MClass)::Vector{MClass}
     cpl = MClass[cls]
 
-    function compute_cpl_aux(superclass_vector::Vector{MClass})
+    function aux(superclass_vector::Vector{MClass})
         indirect_superclasses = MClass[]
 
         for superclass in superclass_vector
@@ -52,51 +54,49 @@ function _compute_cpl(cls::MClass)::Vector{MClass}
         end
 
         if length(indirect_superclasses) > 0
-            compute_cpl_aux(indirect_superclasses)
+            aux(indirect_superclasses)
         end
     end
 
-    compute_cpl_aux(cls.direct_superclasses)
+    aux(cls.direct_superclasses)
 
-    return cpl
+    cpl
 end
 
 # ---- Internal Class Slots ----
 
-function _class_slots(cls::MClass)::Vector{Symbol}
+function _compute_class_slots(cls::MClass)::Vector{Symbol}
     slots = Symbol[]
-
     for superclass in cls.cpl
         slots = union(slots, superclass.direct_slots)
     end
 
-    return slots
+    slots
 end
 
 # ---- Internal Class Defaulted Slots ----
 
-function _class_defaulted(cls::MClass)::Dict{Symbol,Any}
+function _compute_class_defaulted(cls::MClass)::Dict{Symbol,Any}
     defaulted = Dict{Symbol,Any}()
-
     for superclass in reverse(cls.cpl)
         for (slot, value) in superclass.defaulted
-            if !haskey(defaulted, slot)
-                defaulted[slot] = value
-            end
+            defaulted[slot] = value
         end
     end
 
-    return defaulted
+    defaulted
 end
 
 # ---- Internal Class Initialization ----
 
 function _new_base_class(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})::MClass
     cls = MClass(name, direct_slots, direct_superclasses)
-    cls.cpl = _compute_cpl(cls)
-    cls.slots = _class_slots(cls)
-    cls.defaulted = _class_defaulted(cls)
-    return cls
+
+    cls.cpl = _compute_class_cpl(cls)
+    cls.slots = _compute_class_slots(cls)
+    cls.defaulted = _compute_class_defaulted(cls)
+
+    cls
 end
 
 # ---- Base Classes ----
@@ -117,7 +117,29 @@ const _Int64 = _new_base_class(:Int64, [:value], MClass[BuiltInClass])
 
 const _String = _new_base_class(:String, [:value], MClass[BuiltInClass])
 
-# ---- Classes ----
+# ---- Class Of ----
+
+function class_of(_)::MClass
+    Top
+end
+
+function class_of(_::MClass)::MClass
+    Class
+end
+
+function class_of(obj::Instance)::MClass
+    Base.getfield(obj, :class)
+end
+
+function class_of(_::MMultiMethod)::MClass
+    MultiMethod
+end
+
+function class_of(_::MGenericFunction)::MClass
+    GenericFunction
+end
+
+# ---- Classes' Methods ----
 
 function Base.getproperty(cls::MClass, name::Symbol)
     return Base.getfield(cls, name)
@@ -143,37 +165,22 @@ function class_direct_superclasses(cls::MClass)::Vector{MClass}
     cls.direct_superclasses
 end
 
-# ---- Class Of ----
-
-function class_of(_::MClass)::MClass
-    Class
-end
-
-function class_of(obj::Instance)::MClass
-    Base.getfield(obj, :class)
-end
-
-function class_of(_::MMultiMethod)::MClass
-    MultiMethod
-end
-
-function class_of(_::MGenericFunction)::MClass
-    GenericFunction
-end
-
 # ---- Instances ----
 
 function new(cls::MClass; kwargs...)::Instance
+    # Early check 1 
+    if length(kwargs) > length(cls.slots)
+        error("Too many arguments")
+    end
+    
+    # Early check 2
     if length(kwargs) < (length(cls.slots) - length(cls.defaulted))
         error("Too few arguments")
     end
 
-    if length(kwargs) > length(cls.slots)
-        error("Too many arguments")
-    end
-
+    # Filling slots and checking
+    # for invalid slot names    
     slots = cls.defaulted
-
     for (k, v) in kwargs
         if !(k in cls.slots)
             error("Invalid slot name: $k")
@@ -181,6 +188,8 @@ function new(cls::MClass; kwargs...)::Instance
         slots[k] = v
     end
 
+    # Checking that all slots are filled
+    # (i.e no repeated slot names in kwargs)
     for slot in cls.slots
         if !haskey(slots, slot)
             error("Missing slot: $slot")
@@ -199,7 +208,7 @@ function Base.getproperty(obj::Instance, name::Symbol)
     end
 end
 
-function Base.setproperty!(obj::Instance, name::Symbol, value)
+function Base.setproperty!(obj::Instance, name::Symbol, value)::Nothing
     slots = Base.getfield(obj, :slots)
     if haskey(slots, name)
         slots[name] = value
@@ -216,7 +225,13 @@ end
 
 # ---- Generic Functions ----
 
-function (gf::MGenericFunction)(args...; kwargs...)::Any
+function _add_method(gf::MGenericFunction, specializers::Vector{MClass}, f::Function)::Nothing
+    mm = MMultiMethod(f, specializers, gf)
+    push!(gf.methods, mm)
+    nothing
+end
+
+function (gf::MGenericFunction)(args...; kwargs...)
     applicable_methods = MMultiMethod[]
     for method in gf.methods
         is_applicable = true
@@ -247,8 +262,13 @@ function (gf::MGenericFunction)(args...; kwargs...)::Any
     classes = [class_of(arg) for arg in args]
     sort!(applicable_methods, by=x -> specificity(x, classes), rev=true)
 
+    current = 1
+    function call_next_method()
+        applicable_methods[current += 1].procedure(call_next_method, args...)
+    end
+
     # DUVIDA: call_next_method(gf, args...)
-    applicable_methods[1].procedure(args...)
+    applicable_methods[1].procedure(call_next_method, args...)
 end
 
 function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
@@ -258,15 +278,11 @@ end
 # ---- Pre-Defined Generic Functions ----
 
 print_object = MGenericFunction(:print_object, Symbol[:obj, :io], MMultiMethod[])
-
-# DUVIDA: io é Top?
-# DUVIDA: base 26?
-# DUVIDA: é suposto especificar o Base.print tbm?
-push!(print_object.methods, MMultiMethod((obj::Instance, io::IO) -> print(io,
-        "<$(class_name(class_of(obj))) $(string(objectid(obj), base=26))>"), print_object, MClass[Top, Top]))
+_add_method(print_object, MClass[Top, Top], (obj, io::IO) -> print(io,
+        "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"))
 
 compute_cpl = MGenericFunction(:compute_cpl, Symbol[:cls], MMultiMethod[])
-push!(compute_cpl.methods, MMultiMethod((cls) -> _compute_cpl(cls), compute_cpl, MClass[Top]))
+_add_method(compute_cpl, MClass[Class], (cls) -> _compute_cpl(cls))
 
 # ---- Base Macros ----
 
