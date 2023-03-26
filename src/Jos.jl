@@ -184,8 +184,35 @@ function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
 end
 
 # ---- Generic Function and Method Macros ----
-macro defgeneric(form)
+function set_generic_function(name, arguments)
+    println("Set Generic Function", "\n", "Name: ", name, "\nArguments: ", arguments)
 end
+
+macro defgeneric(form)
+    if form.head != :call
+        error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
+    end
+
+    # Only lowercase letters and underscores | No more than one underscore in a row | Starts with 2 or more letters
+    name = match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1]))
+
+    if isnothing(name)
+        error("Function name must contain only lowercase letters and underscores.")
+    end
+
+    name = name.match
+
+    # FIX - Not working as we would like it to
+    if @isdefined(name)
+        @warn("WARNING: '$name' already defined. Overwriting with new definition.")
+    end
+
+    arguments = form.args[2:end]
+
+    return :( set_generic_function($name, $arguments) )
+end
+
+@defgeneric add_some(a, b)
 
 macro defmethod(form)
     # @defgeneric()
