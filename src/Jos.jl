@@ -403,10 +403,71 @@ function Base.show(io::IO, gf::MGenericFunction)
 end
 
 # ---- Define Class Macro ----
-macro defclass(form)
-    if @isdefined(name)
-        @warn("WARNING: '$name' already defined. Overwriting with new definition.")
+
+#arguments are not corret?
+macro defclass(classname, supers=[:Object], slots=Symbol[])
+
+    #esc to use gensym?
+    classname = esc(classname)
+    supers = esc(supers)
+    slots = esc(slots)
+
+    supers_expr = if supers == [:Object]
+        quote
+            Object
+        end
+    else
+        quote
+            ($(supers...))
+        end
+    end
+
+    cpl_expr = quote
+        cpl = MClass[]
+        for superclass in direct_superclasses
+            if superclass in cpl
+                continue
+            end
+            push!(cpl, superclass)
+            cpl = union(cpl, _compute_cpl(superclass))
+        end
+        cpl
+    end
+
+    defaulted_expr = quote
+        _compute_defaulted(cls)
+    end
+
+    cls_expr = quote
+        cls = MClass(name, slots, direct_superclasses)
+        cls.meta = meta
+        cls.cpl = $cpl_expr
+        cls.slots = _compute_slots(cls)
+        cls.defaulted = $defaulted_expr
+        cls
+    end
+
+    global_expr = quote
+        $(classname) = $cls_expr
+    end
+
+    quote
+        meta = Class
+        direct_superclasses = $(supers_expr)
+
+        $cls_expr
+
+        $global_expr
+
+        function $(classname)(args...)
+            instance = Instance($(classname), Dict{Symbol,Any}())
+            for (k, v) in zip(slots, args)
+                instance.slots[k] = v
+            end
+            instance
+        end
     end
 end
+
 
 end # module Jos
