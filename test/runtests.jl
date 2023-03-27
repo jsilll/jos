@@ -1,7 +1,7 @@
 using Test, Jos
 
 # ---- Complex Numbers Example ----
-const ComplexNumber = Jos._new_base_class(:ComplexNumber, [:real, :imag], [Jos.Object])
+const ComplexNumber = Jos._new_default_class(:ComplexNumber, [:real, :imag], [Jos.Object])
 # Create some instances of complex numbers
 const c1 = Jos.new(ComplexNumber, real=1, imag=2)
 const c2 = Jos.new(ComplexNumber, real=3, imag=4)
@@ -13,10 +13,10 @@ Jos._add_method(add, [ComplexNumber, ComplexNumber], (a, b) -> Jos.new(ComplexNu
 Jos._add_method(Jos.print_object, [ComplexNumber, Jos.Top], (obj, io) -> print(io, "$(c.real)$(c.imag < 0 ? "-" : "+")$(abs(c.imag))i"))
 
 # ---- Circle Example ----
-const ColorMixin = Jos._new_base_class(:ColorMixin, [:color], [Jos.Object])
-const Shape = Jos._new_base_class(:Shape, Symbol[], [Jos.Object])
-const Circle = Jos._new_base_class(:Circle, [:center, :radius], [Shape])
-const ColoredCircle = Jos._new_base_class(:ColoredCircle, Symbol[], [Circle, ColorMixin])
+const ColorMixin = Jos._new_default_class(:ColorMixin, [:color], [Jos.Object])
+const Shape = Jos._new_default_class(:Shape, Symbol[], [Jos.Object])
+const Circle = Jos._new_default_class(:Circle, [:center, :radius], [Shape])
+const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, ColorMixin])
 
 # ---- Tests Start ----
 @testset "2.1 Classes" begin
@@ -101,16 +101,28 @@ const ColoredCircle = Jos._new_base_class(:ColoredCircle, Symbol[], [Circle, Col
     # -- Test Jos._Int64 --
     @test Jos._Int64.name === :_Int64
 
-    @test Jos._Int64.cpl == [Jos._Int64, Jos.BuiltInClass, Jos.Class, Jos.Object, Jos.Top]
-    @test Jos._Int64.direct_superclasses == [Jos.BuiltInClass]
+    @test Jos._Int64.cpl == [Jos._Int64, Jos.Object, Jos.Top]
+    @test Jos._Int64.direct_superclasses == [Jos.Object]
 
-    @test Jos._Int64.slots == [:value, collect(fieldnames(Jos.MClass))...]
+    @test Jos._Int64.slots == [:value]
     @test Jos._Int64.direct_slots == [:value]
 
     @test Jos._Int64.defaulted == Dict{Symbol,Any}()
 
-    @test Jos.class_of(Jos._Int64) === Jos.Class
+    @test Jos.class_of(Jos._Int64) === Jos.BuiltInClass
 
+    # -- Test Jos._String -
+    @test Jos._String.name === :_String
+
+    @test Jos._String.cpl == [Jos._String, Jos.Object, Jos.Top]
+    @test Jos._String.direct_superclasses == [Jos.Object]
+
+    @test Jos._String.slots == [:value]
+    @test Jos._String.direct_slots == [:value]
+
+    @test Jos._String.defaulted == Dict{Symbol,Any}()
+
+    @test Jos.class_of(Jos._String) === Jos.BuiltInClass
 
     # -- TODO: Test @defclass -- 
 end
@@ -172,8 +184,9 @@ end
     @test Jos.class_of(Jos.MultiMethod) === Jos.Class
     @test Jos.class_of(Jos.GenericFunction) === Jos.Class
     @test Jos.class_of(Jos.BuiltInClass) === Jos.Class
-    @test Jos.class_of(Jos._Int64) === Jos.Class
-    @test Jos.class_of(Jos._String) === Jos.Class
+
+    @test Jos.class_of(Jos._Int64) === Jos.BuiltInClass
+    @test Jos.class_of(Jos._String) === Jos.BuiltInClass
 
     @test Jos.class_of(ComplexNumber) === Jos.Class
 
@@ -293,7 +306,7 @@ end
     F = Jos.MClass(:F, Symbol[], Jos.MClass[D, E])
 
     # -- Test Class Precedence List --
-    @test Jos._compute_class_cpl(F) == Vector{Jos.MClass}([F, D, E, A, B, C])
+    @test Jos._compute_cpl(F) == Vector{Jos.MClass}([F, D, E, A, B, C])
 end
 
 @testset "2.14 Built-In Classes" begin
@@ -301,8 +314,8 @@ end
     # DUVIDA: Como implementar? class_of("a") == Jos._String
 
     # -- Test Built-In Classes --
-    @test class_of(Jos._Int64) == Jos.BuiltInClass
-    @test class_of(Jos._String) == Jos.BuiltInClass 
+    @test Jos.class_of(Jos._Int64) == Jos.BuiltInClass
+    @test Jos.class_of(Jos._String) == Jos.BuiltInClass
 end
 
 @testset "2.15 Introspection" begin
@@ -312,12 +325,12 @@ end
     @test Jos.class_slots(ColoredCircle) == [:center, :radius, :color]
     @test Jos.class_direct_slots(ColoredCircle) == []
 
-    @test Jos.class_cpl(ColoredCircle) == [ColoredCircle, Circle, ColorMixin, Object, Top]
+    @test Jos.class_cpl(ColoredCircle) == [ColoredCircle, Circle, ColorMixin, Shape, Jos.Object, Jos.Top]
     @test Jos.class_direct_superclasses(ColoredCircle) == [Circle, ColorMixin]
 
-    @test length(Jos.generic_methods(ColoredCircle)) == 2
+    # @test length(Jos.generic_methods(draw)) == 2
 
-    @test length(Jos.method_specializers(Jos.generic_methods(ColoredCircle)[1])) == 2
+    # @test length(Jos.method_specializers(Jos.generic_methods(draw)[1])) == 2
 end
 
 @testset "2.16.1 Class Instantiation Protocol" begin

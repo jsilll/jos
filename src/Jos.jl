@@ -3,15 +3,26 @@ module Jos
 # ---- Internal Representation ----
 mutable struct MClass
     name::Symbol
+    meta::MClass
     cpl::Vector{MClass}
     slots::Vector{Symbol}
-    meta::Union{MClass,Missing}
     defaulted::Dict{Symbol,Any}
     direct_slots::Vector{Symbol}
     direct_superclasses::Vector{MClass}
 
-    MClass(name::Symbol, meta::Union{MClass,Missing}, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}) =
-        new(name, MClass[], Symbol[], meta, Dict{Symbol,Any}(), direct_slots, direct_superclasses)
+    function MClass(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})
+        cls = new()
+
+        cls.name = name
+        cls.meta = cls
+        cls.cpl = MClass[]
+        cls.slots = Symbol[]
+        cls.defaulted = Dict{Symbol,Any}()
+        cls.direct_slots = direct_slots
+        cls.direct_superclasses = direct_superclasses
+
+        cls
+    end
 end
 
 struct Instance
@@ -34,9 +45,9 @@ struct MGenericFunction <: MGenericFunctionAbstract
 end
 
 # ---- Internal Base Class Constructor ----
-function _new_base_class(name::Symbol, cpl::Vector{MClass}, slots::Vector{Symbol}, defaulted::Dict{Symbol,Any}, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})
-    cls = MClass(name, missing, direct_slots, direct_superclasses)
-    cls.cpl = cpl
+function _new_base_class(name::Symbol, slots::Vector{Symbol}, defaulted::Dict{Symbol,Any}, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})
+    cls = MClass(name, direct_slots, direct_superclasses)
+
     cls.slots = slots
     cls.defaulted = defaulted
 
@@ -44,11 +55,16 @@ function _new_base_class(name::Symbol, cpl::Vector{MClass}, slots::Vector{Symbol
 end
 
 # ---- Initial Base Classes ----
-const Top = _new_base_class(:Top, MClass[], Symbol[], Dict{Symbol,Any}(), Symbol[], MClass[])
+const Top = _new_base_class(:Top, Symbol[], Dict{Symbol,Any}(), Symbol[], MClass[])
 
-const Object = _new_base_class(:Object, MClass[Top], Symbol[], Dict{Symbol,Any}(), Symbol[], MClass[Top])
+const Object = _new_base_class(:Object, Symbol[], Dict{Symbol,Any}(), Symbol[], MClass[Top])
 
-const Class = _new_base_class(:Class, MClass[Object], collect(fieldnames(MClass)), Dict{Symbol,Any}(), collect(fieldnames(MClass)), MClass[Object])
+const Class = _new_base_class(:Class, collect(fieldnames(MClass)), Dict{Symbol,Any}(), collect(fieldnames(MClass)), MClass[Object])
+
+# -- Set Class Precedence List --
+Top.cpl = MClass[Top]
+Object.cpl = MClass[Object, Top]
+Class.cpl = MClass[Class, Object, Top]
 
 # -- Set Meta Classes --
 Top.meta = Class
@@ -103,8 +119,10 @@ function _compute_defaulted(cls::MClass)::Dict{Symbol,Any}
 end
 
 # ---- Internal Default Class Constructor ----
-function _new_default_class(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})::MClass
-    cls = MClass(name, Class, direct_slots, direct_superclasses)
+function _new_default_class(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
+    cls = MClass(name, direct_slots, direct_superclasses)
+
+    cls.meta = meta
     cls.cpl = _compute_cpl(cls)
     cls.slots = _compute_slots(cls)
     cls.defaulted = _compute_defaulted(cls)
@@ -117,12 +135,14 @@ const MultiMethod = _new_default_class(:MultiMethod, collect(fieldnames(MMultiMe
 
 const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(MGenericFunction)), MClass[Object])
 
+# DUVIDA: de quem é que esta classe deve herdar?
 const BuiltInClass = _new_default_class(:BuiltInClass, Symbol[], MClass[Class])
 
 # ---- Built-in Classes ---
-const _Int64 = _new_default_class(:_Int64, [:value], MClass[Object])
+# DUVIDA: de quem é que estas classes devem herdar?
+const _Int64 = _new_default_class(:_Int64, [:value], MClass[Object], BuiltInClass)
 
-const _String = _new_default_class(:_String, [:value], MClass[Object])
+const _String = _new_default_class(:_String, [:value], MClass[Object], BuiltInClass)
 
 # ---- Class-Of Non Generic Function ----
 function class_of(_)::MClass
@@ -178,18 +198,20 @@ function _add_method(gf::MGenericFunction, specializers::Vector{MClass}, f::Func
     nothing
 end
 
-# ---- GenericFunction-Related Non-GenericFunctions ----
+# ---- GenericFunction-Related Non-Generic Functions ----
 function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
     gf.methods
 end
 
-# ---- Generic Function and Method Macros ----
+# ---- Generic Function Macros ----
 macro defgeneric(form)
     if form.head != :call
         error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
     end
 
-    # Only lowercase letters and underscores | No more than one underscore in a row | Starts with 2 or more letters
+    # Only lowercase letters and underscores
+    # No more than one underscore in a row
+    # Starts with 2 or more letters
     name = match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1]))
 
     if isnothing(name)
@@ -199,12 +221,12 @@ macro defgeneric(form)
     name = form.args[1]
 
     if isdefined(Jos, name)
-        @warn("WARNING: '$name' already defined. Overwriting with new definition.")
+        @warn("'$name' already defined. Overwriting with new definition.")
     end
 
     arguments = form.args[2:end]
 
-    return :( global $name = MGenericFunction($(Expr(:quote, name)), $arguments, MMultiMethod[]) )
+    return :(global $name = MGenericFunction($(Expr(:quote, name)), $arguments, MMultiMethod[]))
 end
 
 macro defmethod(form)
@@ -212,11 +234,15 @@ macro defmethod(form)
 end
 
 # ---- Generic Functions Calling ----
+@defgeneric no_applicable_method(gf, args)
 
-# TODO: @defmethod no_applicable_method, Default behavior is to throw an error
-# ERROR: No applicable method for function add with arguments (123, 456)
+# DUVIDA: Como deve ficar o specializer de args?
+_add_method(no_applicable_method, MClass[GenericFunction, Top],
+    (call_next_method, gf, args) ->
+        error("No aplicable method for function $(gf.name) with arguments ($(join([class_of(arg).name for arg in args], ", ")))"))
 
-function (gf::MGenericFunction)(args...; kwargs...)
+function (gf::MGenericFunction)(args...)
+    # Getting applicable methods
     applicable_methods = MMultiMethod[]
     for method in gf.methods
         is_applicable = true
@@ -226,43 +252,43 @@ function (gf::MGenericFunction)(args...; kwargs...)
                 break
             end
         end
-
         if is_applicable
             push!(applicable_methods, method)
         end
     end
-
     if length(applicable_methods) == 0
-        error("No aplicable method for function $(gf.name) with arguments $(args)")
+        no_applicable_method(gf, collect(args))
     end
 
-    function specificity(mm::MMultiMethod, args::Vector{MClass})::Int
-        res = 0
-        for (i, specializer) in enumerate(mm.specializers)
-            res = res * 10 + findfirst(x -> x === specializer, args[i])
-        end
-        return -res
-    end
+    # Sorting applicable methods by specificity
+    sort!(applicable_methods, by=mm -> begin
+            res = 0
+            cpls = [class_of(arg).cpl for arg in args]
+            for (i, specializer) in enumerate(mm.specializers)
+                res = res * 10 + findfirst(x -> x === specializer, cpls[i])
+            end
+            -res
+        end, rev=true)
 
-    classes = [class_of(arg) for arg in args]
-    sort!(applicable_methods, by=x -> specificity(x, classes), rev=true)
-
-    current = 1
+    # Calling applicable methods
+    method_idx = 1
     function call_next_method()
-        applicable_methods[current+=1].procedure(call_next_method, args...)
-        # TODO: if no more methods, call no_applicable_method()
+        if method_idx == length(applicable_methods)
+            no_applicable_method(gf, collect(args))
+        else
+            applicable_methods[method_idx+=1].procedure(call_next_method, args...)
+        end
     end
-
-    # DUVIDA: call_next_method(gf, args...)
     applicable_methods[1].procedure(call_next_method, args...)
 end
 
 # ---- Class Instatiation Protocol ----
-# -- allocate_instance --
-# creates a non-initialized instance of a class
-# @defmethod allocate_instance(class::Class) = ???
+@defgeneric allocate_instance(cls)
+
+_add_method(allocate_instance, MClass[Class], (cls) -> Instance(cls, Dict()))
 
 # -- initialize_instance --
+# TODO:
 # initializes an instance of a class
 # new(class; initargs...) =
 # let instance = allocate_instance(class)
@@ -305,9 +331,12 @@ function new(cls::MClass; kwargs...)::Instance
 end
 
 # ---- Compute Slots Protocol ----
+@defgeneric compute_slots(cls)
 
 # ---- Slot Access Protocol ----
 # TODO: slot access protocol
+# DUVIDA: isto tem mesmo de levar o idx?
+@defgeneric compute_getter_and_setter(cls, slot)
 
 function Base.getproperty(obj::Instance, name::Symbol)
     # TODO: this should call some generic function for
@@ -338,20 +367,24 @@ function Base.getproperty(cls::MClass, name::Symbol)
 end
 
 # ---- Compute Class Precedence List Protocol ----
+@defgeneric compute_cpl(cls)
 # compute_cpl = MGenericFunction(:compute_cpl, Symbol[:cls], MMultiMethod[])
 # _add_method(compute_cpl, MClass[Class], (cls) -> _compute_cpl(cls))
 
 # ---- Remaining Pre-Defined Generic Functions ----
-# -- print_object --
-# TODO: especializar print_object para outros tipos
-# DUVIDA: o primeiro argumento pode ser typed com Top?
-print_object = MGenericFunction(:print_object, Symbol[:obj, :io], MMultiMethod[])
-_add_method(print_object, MClass[Object, Top], (obj, io::IO) -> print(io,
-    "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"))
-# TODO: @defmethod print_object(class::Class, io) =
-#         print(io, "<$(class_name(class_of(class))) $(class_name(class))>")
-# TODO: MultiMethod
-# TODO: GenericFunction
+@defgeneric print_object(obj, io)
+
+_add_method(print_object, MClass[Object, Top],
+    (call_next_method, obj, io::IO) -> print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"))
+
+_add_method(print_object, MClass[Class, Top],
+    (call_next_method, cls, io::IO) -> print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>"))
+
+_add_method(print_object, MClass[MultiMethod, Top],
+    (call_next_method, mm, io::IO) -> print(io, "<$(class_name(class_of(mm))) $(mm.generic_function.name)>"))
+
+_add_method(print_object, MClass[GenericFunction, Top],
+    (call_next_method, gf, io::IO) -> print(io, "<$(class_name(class_of(gf))) $(gf.name)>"))
 
 function Base.show(io::IO, cls::MClass)
     print_object(cls, io)
@@ -369,7 +402,7 @@ function Base.show(io::IO, gf::MGenericFunction)
     print_object(gf, io)
 end
 
-# ---- Remaining Macros ----
+# ---- Define Class Macro ----
 macro defclass(form)
     if @isdefined(name)
         @warn("WARNING: '$name' already defined. Overwriting with new definition.")
