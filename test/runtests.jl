@@ -1,22 +1,66 @@
 using Test, Jos
 
+# ---- Helper Functions ----
+function get_print_object_output(c)
+    io = IOBuffer()
+    Jos.print_object(c, io)
+    return String(take!(io))
+end
+
 # ---- Complex Numbers Example ----
 const ComplexNumber = Jos._new_default_class(:ComplexNumber, [:real, :imag], [Jos.Object])
-# Create some instances of complex numbers
+
 const c1 = Jos.new(ComplexNumber, real=1, imag=2)
 const c2 = Jos.new(ComplexNumber, real=3, imag=4)
-# Create a new generic function
-add = Jos.MGenericFunction(:add, [:x, :y], [])
-# Specialize Generic Function for ComplexNumber
-Jos._add_method(add, [ComplexNumber, ComplexNumber], (a, b) -> Jos.new(ComplexNumber, real=a.real + b.real, imag=a.imag + b.imag))
-# Specialize Jos.print_object for ComplexNumber
-Jos._add_method(Jos.print_object, [ComplexNumber, Jos.Top], (obj, io) -> print(io, "$(c.real)$(c.imag < 0 ? "-" : "+")$(abs(c.imag))i"))
 
-# ---- Circle Example ----
-const ColorMixin = Jos._new_default_class(:ColorMixin, [:color], [Jos.Object])
+Jos.@defgeneric add(x, y)
+
+Jos._add_method(add, [ComplexNumber, ComplexNumber],
+    (call_next_method, a, b) -> Jos.new(ComplexNumber, real=a.real + b.real, imag=a.imag + b.imag))
+
+Jos._add_method(Jos.print_object, [ComplexNumber, Jos.Top],
+    (call_next_method, c, io) -> print(io, "$(c.real)$(c.imag < 0 ? "-" : "+")$(abs(c.imag))i"))
+
+# ---- Shapes and Devices Example ----
 const Shape = Jos._new_default_class(:Shape, Symbol[], [Jos.Object])
+
+const Line = Jos._new_default_class(:Line, [:from, :to], [Shape])
 const Circle = Jos._new_default_class(:Circle, [:center, :radius], [Shape])
-const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, ColorMixin])
+
+const Device = Jos._new_default_class(:Device, Symbol[:color], [Jos.Object])
+
+const Screen = Jos._new_default_class(:Screen, Symbol[], [Device])
+const Printer = Jos._new_default_class(:Printer, Symbol[], [Device])
+
+Jos.@defgeneric draw(shape, device)
+
+Jos._add_method(draw, [Line, Screen],
+    (call_next_method::Function, line, screen) -> "Drawing a line on a screen")
+
+Jos._add_method(draw, [Circle, Screen],
+    (call_next_method::Function, circle, screen) -> "Drawing a circle on a screen")
+
+Jos._add_method(draw, [Line, Printer],
+    (call_next_method::Function, line, printer) -> "Drawing a line on a printer")
+
+Jos._add_method(draw, [Circle, Printer],
+    (call_next_method::Function, circle, printer) -> "Drawing a circle on a printer")
+
+# ---- Mixins Example ----
+const ColorMixin = Jos._new_default_class(:ColorMixin, [:color], [Jos.Object])
+
+const ColoredLine = Jos._new_default_class(:ColoredLine, Symbol[], [ColorMixin, Line])
+const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [ColorMixin, Circle])
+
+Jos._add_method(Jos.print_object, [ColorMixin, Device],
+    (call_next_method::Function, circle, device) ->
+        let previous_color = device.color
+            device.color = circle.color
+            actions = call_next_method()
+            device.color = previous_color
+            ["$(circle.color)", actions..., "$(previous_color)"]
+        end
+)
 
 # ---- Tests Start ----
 @testset "2.1 Classes" begin
@@ -32,6 +76,7 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, 
     @test Jos.Top.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos.Top) === Jos.Class
+    @test get_print_object_output(Jos.Top) == "<Class Top>"
 
     # -- Test Jos.Object --
     @test Jos.Object.name === :Object
@@ -45,6 +90,7 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, 
     @test Jos.Object.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos.Object) === Jos.Class
+    @test get_print_object_output(Jos.Object) == "<Class Object>"
 
     # -- Test Jos.Class --
     @test Jos.Class.name === :Class
@@ -58,6 +104,7 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, 
     @test Jos.Class.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos.Class) === Jos.Class
+    @test get_print_object_output(Jos.Class) == "<Class Class>"
 
     # -- Test Jos.MultiMethod --
     @test Jos.MultiMethod.name === :MultiMethod
@@ -71,6 +118,7 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, 
     @test Jos.MultiMethod.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos.MultiMethod) === Jos.Class
+    @test get_print_object_output(Jos.MultiMethod) == "<Class MultiMethod>"
 
     # -- Test Jos.GenericFunction --
     @test Jos.GenericFunction.name === :GenericFunction
@@ -84,6 +132,7 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, 
     @test Jos.GenericFunction.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos.GenericFunction) === Jos.Class
+    @test get_print_object_output(Jos.GenericFunction) == "<Class GenericFunction>"
 
     # -- Test Jos.BuiltInClass --
     @test Jos.BuiltInClass.name === :BuiltInClass
@@ -97,6 +146,7 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, 
     @test Jos.BuiltInClass.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos.BuiltInClass) === Jos.Class
+    @test get_print_object_output(Jos.BuiltInClass) == "<Class BuiltInClass>"
 
     # -- Test Jos._Int64 --
     @test Jos._Int64.name === :_Int64
@@ -110,6 +160,7 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, 
     @test Jos._Int64.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos._Int64) === Jos.BuiltInClass
+    @test get_print_object_output(Jos._Int64) == "<BuiltInClass _Int64>"
 
     # -- Test Jos._String -
     @test Jos._String.name === :_String
@@ -123,6 +174,7 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [Circle, 
     @test Jos._String.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos._String) === Jos.BuiltInClass
+    @test get_print_object_output(Jos._String) == "<BuiltInClass _String>"
 
     # -- TODO: Test @defclass -- 
 end
@@ -137,7 +189,11 @@ end
     # -- Test Jos.new with Invalid Slot Name --
     @test_throws ErrorException Jos.new(ComplexNumber, real=1, wrong=3)
 
-    # -- TODO: Test Jos.new with Missing Not Defaulted Slot --
+    # -- Test Jos.new with Missing Not Defaulted Slot --
+    ComplexNumberDefaulted = Jos._new_default_class(:ComplexNumberDefaulted, Symbol[], [ComplexNumber])
+    ComplexNumberDefaulted.defaulted = Dict(:real => 0)
+    @test Jos.new(ComplexNumberDefaulted, imag=2).real === 0
+    @test_throws ErrorException Jos.new(ComplexNumberDefaulted, real=1)
 end
 
 @testset "2.3 Slot Access" begin
@@ -173,7 +229,7 @@ end
     @test Jos.print_object.params == [:obj, :io]
     @test Jos.print_object.name === :print_object
 
-    # TODO: Fix call_next_method
+    @test get_print_object_output(c1) == "1+2i"
 end
 
 @testset "2.6 MetaObjects" begin
@@ -212,10 +268,15 @@ end
     # -- Test add Generic Function --    
     @test add.name === :add
     @test add.params == [:x, :y]
+
     @test length(add.methods) != 0
     @test add.methods[1].generic_function === add
+
     @test Jos.class_of(add) === Jos.GenericFunction
     @test Jos.class_of(add.methods[1]) === Jos.MultiMethod
+
+    @test get_print_object_output(add) == "<GenericFunction add with 1 method>"
+    @test get_print_object_output(add.methods[1]) == "<MultiMethod add(ComplexNumber, ComplexNumber)>"
 end
 
 @testset "2.7 Class Options" begin
@@ -228,57 +289,69 @@ end
 end
 
 @testset "2.9 Generic Function Calls" begin
-    # -- TODO: Test no_applicable_method --    
+    # -- Test no_applicable_method --
+    # DUVIDA: contradicao no enunciado?
+    # Jos.class_of(1) === Jos._Int64
+    @test_throws ErrorException add(1, 2)
+
+    # -- Test call_next_method --
+    Jos.@defgeneric foo(x)
+
+    Jos._add_method(foo, Jos.MClass[Jos.Top],
+        (call_next_method, x::Jos.Instance) ->
+            ["Top"])
+
+    Jos._add_method(foo, Jos.MClass[Jos.Object],
+        (call_next_method, x::Jos.Instance) ->
+            ["Object", call_next_method()...])
+
+    Jos._add_method(foo, Jos.MClass[Jos._Int64],
+        (call_next_method, x::Jos.Instance) ->
+            ["_Int64", call_next_method()...])
+
+    i = Jos.new(Jos._Int64, value=1)
+    @test foo(i) == ["_Int64", "Object", "Top"]
 end
 
 @testset "2.10 Multiple Dispatch" begin
-    # TODO: Shapes and Device example
-    # @defclass(Shape, [], [])
-    # @defclass(Device, [], [])
-    # @defgeneric draw(shape, device)
-    # @defclass(Line, [Shape], [from, to])
-    # @defclass(Circle, [Shape], [center, radius])
-    # @defclass(Screen, [Device], [])
-    # @defclass(Printer, [Device], [])
-    # @defmethod draw(shape::Line, device::Screen) = println("Drawing a Line on Screen")
-    # @defmethod draw(shape::Circle, device::Screen) = println("Drawing a Circle on Screen")
-    # @defmethod draw(shape::Line, device::Printer) = println("Drawing a Line on Printer")
-    # @defmethod draw(shape::Circle, device::Printer) = println("Drawing a Circle on Printer")
-    # let devices = [new(Screen), new(Printer)],
-    # shapes = [new(Line), new(Circle)]
-    # for device in devices
-    # for shape in shapes
-    # draw(shape, device)
-    # end
-    # end
-    # end
-    # end
+    # -- Test with Shapes and Devices Example --
+    expected = ["Drawing a line on a printer",
+        "Drawing a circle on a printer",
+        "Drawing a line on a screen",
+        "Drawing a circle on a screen"]
+
+    devices = [Jos.new(Printer, color=:black), Jos.new(Screen, color=:black)]
+    shapes = [Jos.new(Line, from=1, to=2), Jos.new(Circle, center=1, radius=2)]
+
+    i = 1
+    for device in devices
+        for shape in shapes
+            @test draw(shape, device) == expected[i]
+            i += 1
+        end
+    end
 end
 
 @testset "2.11 Multiple Inheritance" begin
-    # TODO
-    # @defclass(ColorMixin, [],
-    # [[color, reader=get_color, writer=set_color!]])
-    # @defmethod draw(s::ColorMixin, d::Device) =
-    # let previous_color = get_device_color(d)
-    # set_device_color!(d, get_color(s))
-    # call_next_method()
-    # set_device_color!(d, previous_color)
-    # end
-    # @defclass(ColoredLine, [ColorMixin, Line], [])
-    # @defclass(ColoredCircle, [ColorMixin, Circle], [])
-    # @defclass(ColoredPrinter, [Printer],
-    # [[ink=:black, reader=get_device_color, writer=_set_device_color!]])
-    # @defmethod set_device_color!(d::ColoredPrinter, color) = begin
-    # println("Changing printer ink color to $color")
-    # _set_device_color!(d, color)
-    # end
-    # let shapes = [new(Line), new(ColoredCircle, color=:red), new(ColoredLine, color=:blue)],
-    # printer = new(ColoredPrinter, ink=:black)
-    # for shape in shapes
-    # draw(shape, printer)
-    # end
-    # end
+    # -- Test Mixins with extension of the Shapes and Devices Example --
+    expected = [["black", "Drawing a line on a printer", "black"],
+        ["red", "Drawing a circle on a printer", "black"],
+        ["blue", "Drawing a line on a printer", "black"]]
+
+    # debug coloredcircle cpl
+    println(ColoredCircle.cpl)
+
+    printer = Jos.new(Printer, color=:black)
+
+    shapes = [Jos.new(Line, from=1, to=2),
+        Jos.new(ColoredCircle, center=1, radius=2, color=:red),
+        Jos.new(ColoredLine, from=1, to=2, color=:blue)]
+
+    i = 1
+    for shape in shapes
+        @test draw(shape, printer) == expected[i]
+        i += 1
+    end
 end
 
 @testset "2.12 Class Hierarchy" begin

@@ -54,7 +54,7 @@ function _new_base_class(name::Symbol, slots::Vector{Symbol}, defaulted::Dict{Sy
     cls
 end
 
-# ---- Initial Base Classes ----
+# ---- Bootstrapping Initial Base Classes ----
 const Top = _new_base_class(:Top, Symbol[], Dict{Symbol,Any}(), Symbol[], MClass[])
 
 const Object = _new_base_class(:Object, Symbol[], Dict{Symbol,Any}(), Symbol[], MClass[Top])
@@ -130,16 +130,14 @@ function _new_default_class(name::Symbol, direct_slots::Vector{Symbol}, direct_s
     cls
 end
 
-# ---- Remaining Base Classes ----
+# ---- Remaining Classes ----
 const MultiMethod = _new_default_class(:MultiMethod, collect(fieldnames(MMultiMethod)), MClass[Object])
 
 const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(MGenericFunction)), MClass[Object])
 
-# DUVIDA: de quem é que esta classe deve herdar?
 const BuiltInClass = _new_default_class(:BuiltInClass, Symbol[], MClass[Class])
 
 # ---- Built-in Classes ---
-# DUVIDA: de quem é que estas classes devem herdar?
 const _Int64 = _new_default_class(:_Int64, [:value], MClass[Object], BuiltInClass)
 
 const _String = _new_default_class(:_String, [:value], MClass[Object], BuiltInClass)
@@ -191,6 +189,11 @@ function method_specializers(mm::MMultiMethod)::Vector{MClass}
     mm.specializers
 end
 
+# ---- GenericFunction-Related Non-Generic Functions ----
+function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
+    gf.methods
+end
+
 # ---- Internal Add Method ----
 function _add_method(gf::MGenericFunction, specializers::Vector{MClass}, f::Function)::Nothing
     mm = MMultiMethod(f, specializers, gf)
@@ -198,37 +201,33 @@ function _add_method(gf::MGenericFunction, specializers::Vector{MClass}, f::Func
     nothing
 end
 
-# ---- GenericFunction-Related Non-Generic Functions ----
-function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
-    gf.methods
-end
-
-# ---- Generic Function Macros ----
+# ---- Generic Function Macro ----
 macro defgeneric(form)
     if form.head != :call
         error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
     end
 
-    # Only lowercase letters and underscores
-    # No more than one underscore in a row
-    # Starts with 2 or more letters
-    name = match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1]))
-
-    if isnothing(name)
+    # Starts with 2 or more letters, no more than one 
+    # underscore in a row and only lower case letters
+    if isnothing(match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1])))
         error("Function name must contain only lowercase letters and underscores.")
     end
 
     name = form.args[1]
-
+    
+    # Checking if the name has already been defined
     if isdefined(Jos, name)
-        @warn("'$name' already defined. Overwriting with new definition.")
+        @error("'$(name)' already defined in module 'Jos'.")
     end
 
-    arguments = form.args[2:end]
+    args = form.args[2:end]
 
-    return :(global $name = MGenericFunction($(Expr(:quote, name)), $arguments, MMultiMethod[]))
+    quote
+        global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+    end
 end
 
+# ---- Method Definition Macro ----
 macro defmethod(form)
     # @defgeneric()
 end
@@ -238,8 +237,8 @@ end
 
 # DUVIDA: Como deve ficar o specializer de args?
 _add_method(no_applicable_method, MClass[GenericFunction, Top],
-    (call_next_method, gf, args) ->
-        error("No aplicable method for function $(gf.name) with arguments ($(join([class_of(arg).name for arg in args], ", ")))"))
+    (call_next_method::Function, gf::MGenericFunction, args) ->
+        error("No applicable method for function $(gf.name) with arguments ($(join([class_of(arg).name for arg in args], ", ")))"))
 
 function (gf::MGenericFunction)(args...)
     # Getting applicable methods
@@ -371,20 +370,25 @@ end
 # compute_cpl = MGenericFunction(:compute_cpl, Symbol[:cls], MMultiMethod[])
 # _add_method(compute_cpl, MClass[Class], (cls) -> _compute_cpl(cls))
 
-# ---- Remaining Pre-Defined Generic Functions ----
+# ---- print-object Generic Function and respective Base.show specializations ----
 @defgeneric print_object(obj, io)
 
 _add_method(print_object, MClass[Object, Top],
-    (call_next_method, obj, io::IO) -> print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"))
+    (call_next_method::Function, obj::Instance, io::IO) ->
+        print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"))
 
 _add_method(print_object, MClass[Class, Top],
-    (call_next_method, cls, io::IO) -> print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>"))
+    (call_next_method::Function, cls::MClass, io::IO) ->
+        print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>"))
 
 _add_method(print_object, MClass[MultiMethod, Top],
-    (call_next_method, mm, io::IO) -> print(io, "<$(class_name(class_of(mm))) $(mm.generic_function.name)>"))
+    (call_next_method::Function, mm::MMultiMethod, io::IO) ->
+        print(io, "<MultiMethod $(mm.generic_function.name)($(join([specializer.name for specializer in mm.specializers], ", ")))>"))
 
 _add_method(print_object, MClass[GenericFunction, Top],
-    (call_next_method, gf, io::IO) -> print(io, "<$(class_name(class_of(gf))) $(gf.name)>"))
+    (call_next_method::Function, gf::MGenericFunction, io::IO) ->
+        print(io,
+            "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 ? "s" : "")>"))
 
 function Base.show(io::IO, cls::MClass)
     print_object(cls, io)
@@ -403,7 +407,6 @@ function Base.show(io::IO, gf::MGenericFunction)
 end
 
 # ---- Define Class Macro ----
-
 #arguments are not corret?
 macro defclass(classname, supers=[:Object], slots=Symbol[])
 
@@ -468,6 +471,5 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
         end
     end
 end
-
 
 end # module Jos
