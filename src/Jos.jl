@@ -229,7 +229,46 @@ end
 
 # ---- Method Definition Macro ----
 macro defmethod(form)
-    # @defgeneric()
+    local gf_name, arguments
+
+    try
+        gf_name = form.args[1].args[1]
+        arguments = form.args[1].args[2:end]
+
+    catch err
+        error("Index out of bounds!", "\n", err)
+    end
+
+    gf_args = Symbol[]
+    specializers = MClass[]
+
+    for arg in arguments
+        try
+            if arg.head == :(::)
+                push!(gf_args, arg.args[1])
+                push!(specializers, eval(arg.args[2]))
+            end
+        catch
+            push!(gf_args, arg)
+            push!(specializers, Top)
+        end
+    end
+
+    # Checking if the generic function is defined
+    if !isdefined(Jos, gf_name)
+        new_gf_expr = :( $(gf_name)($(gf_args...)) )
+        eval(:( @defgeneric $new_gf_expr ))
+        println("Generic Function '$(new_gf_expr)' was automatically created!")
+    end
+
+    # Get the variable that contains the generic function
+    eval(:( gf = $gf_name ))
+
+    # TODO: Add method behavior
+    _add_method(gf, specializers, (
+        call_next_method::Function) -> println(io, ""))
+
+    println("Method added to GF '$(gf_name)' with specializers: $(specializers...)")
 end
 
 # ---- Generic Functions Calling ----
