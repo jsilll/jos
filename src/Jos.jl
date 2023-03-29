@@ -264,9 +264,15 @@ macro defmethod(form)
     # Get the variable that contains the generic function
     eval(:( gf = $gf_name ))
 
-    # TODO: Add method behavior
-    _add_method(gf, specializers, (
-        call_next_method::Function) -> println(io, ""))
+    _add_method(gf, specializers, (call_next_method::Function, args...) -> 
+        # Replace the arguments with the real values
+        begin
+            for (i, arg) in enumerate(gf_args)
+                eval( :( $arg = $(args[i])) )
+            end
+            eval(form.args[2])
+        end
+    )
 
     println("Method added to GF '$(gf_name)' with specializers: $(specializers...)")
 end
@@ -510,5 +516,30 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
         end
     end
 end
+
+# ---- [Delete later] Just for a quick test ----
+
+# Works with or without the @defgeneric
+@defgeneric reflect_object(obj)
+@defgeneric add(a, b)
+
+# Defining methods for the generic functions
+@defmethod reflect_object(obj::_Int64) = "$(obj.value) is an _Int64"
+@defmethod reflect_object(obj::_String) = "$(obj.value) is a _String"
+
+@defmethod add(a::_Int64, b::_Int64) = new(_Int64, value=(a.value + b.value))
+@defmethod add(a::_String, b::_String) = new(_String, value=(string(a.value) * string(b.value)))
+
+# Calling some methods
+println("\nResults:")
+println("For reflect_object(1): ", reflect_object(new(_Int64, value = :1)))
+println("For reflect_object('Hello!'): ", reflect_object(new(_String, value = :Hello!)))
+
+add_int = add(new(_Int64, value=2), new(_Int64, value=3))
+println("For add(2, 3): ", add_int, " [Value: ", add_int.value, "]")
+add_string = add(new(_String, value=:Ju), new(_String, value=:lia))
+println("For add('Ju', 'lia'): ", add_string, " [Value: ", add_string.value, "]")
+
+# [Corner case] Can we also define a generic function without arguments?
 
 end # module Jos
