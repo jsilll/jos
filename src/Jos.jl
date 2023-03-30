@@ -25,7 +25,7 @@ mutable struct MClass
     end
 end
 
-struct Instance
+struct MObject
     class::MClass
     slots::Dict{Symbol,Any}
 end
@@ -159,7 +159,7 @@ function class_of(_::MGenericFunction)::MClass
     GenericFunction
 end
 
-function class_of(obj::Instance)::MClass
+function class_of(obj::MObject)::MClass
     Base.getfield(obj, :class)
 end
 
@@ -214,7 +214,7 @@ macro defgeneric(form)
     end
 
     name = form.args[1]
-    
+
     # Checking if the name has already been defined
     if isdefined(Jos, name)
         @error("'$(name)' already defined in module 'Jos'.")
@@ -256,13 +256,13 @@ macro defmethod(form)
 
     # Checking if the generic function is defined
     if !isdefined(Jos, gf_name)
-        new_gf_expr = :( $(gf_name)($(gf_args...)) )
-        eval(:( @defgeneric $new_gf_expr ))
+        new_gf_expr = :($(gf_name)($(gf_args...)))
+        eval(:(@defgeneric $new_gf_expr))
         println("Generic Function '$(new_gf_expr)' was automatically created!")
     end
 
     # Get the variable that contains the generic function
-    eval(:( gf = $gf_name ))
+    eval(:(gf = $gf_name))
 
     # TODO: Add method behavior
     _add_method(gf, specializers, (
@@ -307,7 +307,7 @@ function (gf::MGenericFunction)(args...)
         -res
     end
 
-    sort!(applicable_methods, by=mm -> specificity(mm) , rev=true)
+    sort!(applicable_methods, by=mm -> specificity(mm), rev=true)
 
     # Calling applicable methods
     method_idx = 1
@@ -324,7 +324,7 @@ end
 # ---- Class Instatiation Protocol ----
 @defgeneric allocate_instance(cls)
 
-_add_method(allocate_instance, MClass[Class], (cls) -> Instance(cls, Dict()))
+_add_method(allocate_instance, MClass[Class], (cls) -> MObject(cls, Dict()))
 
 # -- initialize_instance --
 # TODO:
@@ -339,7 +339,7 @@ _add_method(allocate_instance, MClass[Class], (cls) -> Instance(cls, Dict()))
 # @defmethod initialize(generic::GenericFunction, initargs) = ???
 # @defmethod initialize(method::MultiMethod, initargs) = ???
 
-function new(cls::MClass; kwargs...)::Instance
+function new(cls::MClass; kwargs...)::MObject
     # TODO: this should call some generic function for
     # implementing the class instantiation protocol
     if length(kwargs) > length(cls.slots)
@@ -366,7 +366,7 @@ function new(cls::MClass; kwargs...)::Instance
         end
     end
 
-    Instance(cls, slots)
+    MObject(cls, slots)
 end
 
 # ---- Compute Slots Protocol ----
@@ -377,7 +377,7 @@ end
 # DUVIDA: isto tem mesmo de levar o idx?
 @defgeneric compute_getter_and_setter(cls, slot)
 
-function Base.getproperty(obj::Instance, name::Symbol)
+function Base.getproperty(obj::MObject, name::Symbol)
     # TODO: this should call some generic function for
     # implementing the slot access protocol
     slots = Base.getfield(obj, :slots)
@@ -388,7 +388,7 @@ function Base.getproperty(obj::Instance, name::Symbol)
     end
 end
 
-function Base.setproperty!(obj::Instance, name::Symbol, value)
+function Base.setproperty!(obj::MObject, name::Symbol, value)
     # TODO: this should call some generic function for
     # implementing the slot access protocol
     slots = Base.getfield(obj, :slots)
@@ -414,7 +414,7 @@ end
 @defgeneric print_object(obj, io)
 
 _add_method(print_object, MClass[Object, Top],
-    (call_next_method::Function, obj::Instance, io::IO) ->
+    (call_next_method::Function, obj::MObject, io::IO) ->
         print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"))
 
 _add_method(print_object, MClass[Class, Top],
@@ -434,7 +434,7 @@ function Base.show(io::IO, cls::MClass)
     print_object(cls, io)
 end
 
-function Base.show(io::IO, obj::Instance)
+function Base.show(io::IO, obj::MObject)
     print_object(obj, io)
 end
 
@@ -503,7 +503,7 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
         $global_expr
 
         function $(classname)(args...)
-            instance = Instance($(classname), Dict{Symbol,Any}())
+            instance = MObject($(classname), Dict{Symbol,Any}())
             for (k, v) in zip(slots, args)
                 instance.slots[k] = v
             end

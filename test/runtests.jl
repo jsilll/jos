@@ -52,13 +52,13 @@ const ColorMixin = Jos._new_default_class(:ColorMixin, [:color], [Jos.Object])
 const ColoredLine = Jos._new_default_class(:ColoredLine, Symbol[], [ColorMixin, Line])
 const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [ColorMixin, Circle])
 
-Jos._add_method(Jos.print_object, [ColorMixin, Device],
+Jos._add_method(draw, [ColorMixin, Device],
     (call_next_method::Function, circle, device) ->
         let previous_color = device.color
             device.color = circle.color
-            actions = call_next_method()
+            action = call_next_method()
             device.color = previous_color
-            ["$(circle.color)", actions..., "$(previous_color)"]
+            ["$(circle.color)", action, "$(previous_color)"]
         end
 )
 
@@ -179,7 +179,7 @@ Jos._add_method(Jos.print_object, [ColorMixin, Device],
     # -- TODO: Test @defclass -- 
 end
 
-@testset "2.2 Instances" begin
+@testset "2.2 MObjects" begin
     # -- Test Jos.new with Too Many Arguments --
     @test_throws ErrorException Jos.new(ComplexNumber, real=1, imag=2, wrong=3)
 
@@ -298,15 +298,15 @@ end
     Jos.@defgeneric foo(x)
 
     Jos._add_method(foo, Jos.MClass[Jos.Top],
-        (call_next_method, x::Jos.Instance) ->
+        (call_next_method, x::Jos.MObject) ->
             ["Top"])
 
     Jos._add_method(foo, Jos.MClass[Jos.Object],
-        (call_next_method, x::Jos.Instance) ->
+        (call_next_method, x::Jos.MObject) ->
             ["Object", call_next_method()...])
 
     Jos._add_method(foo, Jos.MClass[Jos._Int64],
-        (call_next_method, x::Jos.Instance) ->
+        (call_next_method, x::Jos.MObject) ->
             ["_Int64", call_next_method()...])
 
     i = Jos.new(Jos._Int64, value=1)
@@ -338,12 +338,9 @@ end
         ["red", "Drawing a circle on a printer", "black"],
         ["blue", "Drawing a line on a printer", "black"]]
 
-    # debug coloredcircle cpl
-    println(ColoredCircle.cpl)
-
     printer = Jos.new(Printer, color=:black)
 
-    shapes = [Jos.new(Line, from=1, to=2),
+    shapes = [Jos.new(ColoredLine, from=1, to=2, color=:black),
         Jos.new(ColoredCircle, center=1, radius=2, color=:red),
         Jos.new(ColoredLine, from=1, to=2, color=:blue)]
 
@@ -395,11 +392,11 @@ end
     @test Jos.class_name(Circle) === :Circle
     @test Jos.class_direct_slots(Circle) == [:center, :radius]
 
-    @test Jos.class_slots(ColoredCircle) == [:center, :radius, :color]
+    @test Jos.class_slots(ColoredCircle) == [:color, :center, :radius]
     @test Jos.class_direct_slots(ColoredCircle) == []
 
-    @test Jos.class_cpl(ColoredCircle) == [ColoredCircle, Circle, ColorMixin, Shape, Jos.Object, Jos.Top]
-    @test Jos.class_direct_superclasses(ColoredCircle) == [Circle, ColorMixin]
+    @test Jos.class_cpl(ColoredCircle) == [ColoredCircle, ColorMixin, Circle, Shape, Jos.Object, Jos.Top]
+    @test Jos.class_direct_superclasses(ColoredCircle) == [ColorMixin, Circle]
 
     # @test length(Jos.generic_methods(draw)) == 2
 
