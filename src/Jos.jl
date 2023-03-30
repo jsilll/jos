@@ -138,13 +138,21 @@ const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(
 const BuiltInClass = _new_default_class(:BuiltInClass, Symbol[], MClass[Class])
 
 # ---- Built-in Classes ---
-const _Int64 = _new_default_class(:_Int64, [:value], MClass[Object], BuiltInClass)
+const _Int64 = _new_default_class(:_Int64, Symbol[], MClass[Object], BuiltInClass)
 
-const _String = _new_default_class(:_String, [:value], MClass[Object], BuiltInClass)
+const _String = _new_default_class(:_String, Symbol[], MClass[Object], BuiltInClass)
 
 # ---- Class-Of Non Generic Function ----
 function class_of(_)::MClass
     Top
+end
+
+function class_of(_::Int64)::MClass
+    _Int64
+end
+
+function class_of(_::String)::MClass
+    _String
 end
 
 function class_of(cls::MClass)::MClass
@@ -207,27 +215,30 @@ macro defgeneric(form)
         error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
     end
 
-    # Starts with 2 or more letters, no more than one 
-    # underscore in a row and only lower case letters
+    # Starts with 2 or more letters, no more than one underscore in a row and only lower case letters
     if isnothing(match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1])))
-        error("Function name must contain only lowercase letters and underscores.")
+        error("Generic Function name must contain only lowercase letters and underscores.")
     end
 
     name = form.args[1]
-    
-    # Checking if the name has already been defined
-    if isdefined(Jos, name)
-        @error("'$(name)' already defined in module 'Jos'.")
-    end
-
     args = form.args[2:end]
 
+    if length(args) < 1
+        error("A Generic Function must have at least one argument!")
+    end
+
     quote
-        global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+        # Checking if the name has already been defined
+        if @isdefined($name)
+            @error("Generic Function '$($name.name)' already defined!")
+        else
+            global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+        end
     end
 end
 
 # ---- Method Definition Macro ----
+# Question: New method with same specializers as an existing one. What should happen?
 macro defmethod(form)
     local gf_name, arguments
 
@@ -240,13 +251,13 @@ macro defmethod(form)
     end
 
     gf_args = Symbol[]
-    specializers = MClass[]
+    specializers = Symbol[]
 
     for arg in arguments
         try
             if arg.head == :(::)
                 push!(gf_args, arg.args[1])
-                push!(specializers, eval(arg.args[2]))
+                push!(specializers, arg.args[2])
             end
         catch
             push!(gf_args, arg)
@@ -254,28 +265,23 @@ macro defmethod(form)
         end
     end
 
-    # Checking if the generic function is defined
-    if !isdefined(Jos, gf_name)
-        new_gf_expr = :( $(gf_name)($(gf_args...)) )
-        eval(:( @defgeneric $new_gf_expr ))
-        println("Generic Function '$(new_gf_expr)' was automatically created!")
-    end
-
-    # Get the variable that contains the generic function
-    eval(:( gf = $gf_name ))
-
-    _add_method(gf, specializers, (call_next_method::Function, args...) -> 
-        # Replace the arguments with the real values
-        begin
-            for (i, arg) in enumerate(gf_args)
-                eval( :( $arg = $(args[i])) )
+    quote
+        # Checking if the generic function is defined
+        if !@isdefined($gf_name)
+            @defgeneric $gf_name($(gf_args...))
+            println("Generic Function '$($gf_name)' was automatically created!")
+        else
+            # If gf was already defined, check if the number of arguments of the method is the same as the gf
+            if length($(gf_name).params) != length($(gf_args))
+                error("GF '$($(gf_name))' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
             end
-            eval(form.args[2])
         end
-    )
 
-    println("Method added to GF '$(gf_name)' with specializers: $(specializers...)")
+        _add_method($gf_name, MClass[$(specializers...)], (call_next_method::Function, $(gf_args...)) -> $(form.args[2]))
+        println("Method added to GF '$($(gf_name))' with specializers: $($(specializers...))")
+    end
 end
+
 
 # ---- Generic Functions Calling ----
 @defgeneric no_applicable_method(gf, args)
@@ -433,7 +439,7 @@ _add_method(print_object, MClass[MultiMethod, Top],
 _add_method(print_object, MClass[GenericFunction, Top],
     (call_next_method::Function, gf::MGenericFunction, io::IO) ->
         print(io,
-            "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 ? "s" : "")>"))
+            "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>"))
 
 function Base.show(io::IO, cls::MClass)
     print_object(cls, io)
@@ -516,30 +522,5 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
         end
     end
 end
-
-# ---- [Delete later] Just for a quick test ----
-
-# Works with or without the @defgeneric
-@defgeneric reflect_object(obj)
-@defgeneric add(a, b)
-
-# Defining methods for the generic functions
-@defmethod reflect_object(obj::_Int64) = "$(obj.value) is an _Int64"
-@defmethod reflect_object(obj::_String) = "$(obj.value) is a _String"
-
-@defmethod add(a::_Int64, b::_Int64) = new(_Int64, value=(a.value + b.value))
-@defmethod add(a::_String, b::_String) = new(_String, value=(string(a.value) * string(b.value)))
-
-# Calling some methods
-println("\nResults:")
-println("For reflect_object(1): ", reflect_object(new(_Int64, value = :1)))
-println("For reflect_object('Hello!'): ", reflect_object(new(_String, value = :Hello!)))
-
-add_int = add(new(_Int64, value=2), new(_Int64, value=3))
-println("For add(2, 3): ", add_int, " [Value: ", add_int.value, "]")
-add_string = add(new(_String, value=:Ju), new(_String, value=:lia))
-println("For add('Ju', 'lia'): ", add_string, " [Value: ", add_string.value, "]")
-
-# [Corner case] Can we also define a generic function without arguments?
 
 end # module Jos

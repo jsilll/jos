@@ -218,7 +218,29 @@ end
 
 @testset "2.4 Generic Functions and Methods" begin
     # TODO: @defgeneric
+
+    #@defgeneric reflect_object(obj)
+    #@defgeneric add(a, b)
+    #@defgeneric add(a, b)
+
     # TODO: @defmethod
+
+    #@defmethod reflect_object(obj::_Int64) = "$(obj) is an _Int64"
+    #@defmethod reflect_object(obj::_String) = "$(obj) is a _String"
+    #@defmethod add(a::_Int64, b::_Int64) = a + b
+    #@defmethod add(a::_Int64, b::_Int64) = a + b
+    #@defmethod add(a::_String, b::_String) = a * b
+    
+    # Calling some methods
+    #println("\nResults:")
+    #println("For reflect_object(1): ", reflect_object(1))
+    #println("For reflect_object('Hello!'): ", reflect_object("Hello"))
+
+    #add_int = add(2,3)
+    #println("For add(2, 3): ", add_int, " [Value: ", add_int, "]")
+    #add_string = add("Ju", "lia")
+    #println("For add('Ju', 'lia'): ", add_string, " [Value: ", add_string, "]")
+
 end
 
 @testset "2.5 Pre-defined Generic Functions and Methods" begin
