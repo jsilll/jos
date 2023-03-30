@@ -1,16 +1,25 @@
-# jop
-Julia Object Protocol
+# Jos
+Julia Object System
 
+### TODO Lista
 - [ ] 2.1 Classes
-- [ ] 2.2 Instances
-- [ ] 2.3 Slot Access
+    - [ ] @defclass(ComplexNumber, [], [real, imag])
+- [x] 2.2 Instances
+- [x] 2.3 Slot Access
 - [ ] 2.4 Generic Functions and Methods
-- [ ] 2.5 Pre-defined Generic Functions and Methods
-- [ ] 2.6 MetaObjects
+    - [x] @defgeneric
+    - [ ] @defmethod
+- [x] 2.5 Pre-defined Generic Functions and Methods
+- [x] 2.6 MetaObjects
 - [ ] 2.7 Class Options
+    - [ ] @defclass with options
 - [ ] 2.8 Readers and Writers
-- [ ] 2.9 Generic Function Calls
-- [ ] 2.10 Multiple Dispatch
+- [x] 2.9 Generic Function Calls
+    - [x] Dispatch
+    - [x] call_next_method()
+    - [x] no_applicable_method(gf, args)
+- [x] 2.10 Multiple Dispatch
+    - [x] Shapes and Devices Example
 - [ ] 2.11 Multiple Inheritance
 - [ ] 2.12 Class Hierarchy
 - [ ] 2.13 Class Precedence List

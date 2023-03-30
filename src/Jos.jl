@@ -299,14 +299,15 @@ function (gf::MGenericFunction)(args...)
     end
 
     # Sorting applicable methods by specificity
-    sort!(applicable_methods, by=mm -> begin
-            res = 0
-            cpls = [class_of(arg).cpl for arg in args]
-            for (i, specializer) in enumerate(mm.specializers)
-                res = res * 10 + findfirst(x -> x === specializer, cpls[i])
-            end
-            -res
-        end, rev=true)
+    function specificity(mm::MMultiMethod)::Int
+        res = 0
+        for (i, specializer) in enumerate(mm.specializers)
+            res = res * 10 + findfirst(x -> x === specializer, class_of(args[i]).cpl)
+        end
+        -res
+    end
+
+    sort!(applicable_methods, by=mm -> specificity(mm) , rev=true)
 
     # Calling applicable methods
     method_idx = 1
