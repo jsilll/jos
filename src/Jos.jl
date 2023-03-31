@@ -198,28 +198,30 @@ macro defgeneric(form)
         error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
     end
 
-    # Starts with 2 or more letters, no more than one 
-    # underscore in a row and only lower case letters
+    # Starts with 2 or more letters, no more than one underscore in a row and only lower case letters
     if isnothing(match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1])))
-        error("Function name must contain only lowercase letters and underscores.")
+        error("Generic Function name must contain only lowercase letters and underscores.")
     end
 
     name = form.args[1]
-
-    # Checking if the name has already been defined
-    if isdefined(Jos, name)
-        @error("'$(name)' already defined in module 'Jos'.")
-    end
-
     args = form.args[2:end]
 
+    if length(args) < 1
+        error("A Generic Function must have at least one argument!")
+    end
+
     quote
-        global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+        # Checking if the name has already been defined
+        if @isdefined($name)
+            @error("Generic Function '$($name.name)' already defined!")
+        else
+            global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+        end
     end
 end
 
 # ---- Method Definition Macro ----
-
+# Question: New method with same specializers as an existing one. What should happen?
 macro defmethod(form)
     local gf_name, arguments
 
@@ -232,13 +234,13 @@ macro defmethod(form)
     end
 
     gf_args = Symbol[]
-    specializers = MClass[]
+    specializers = Symbol[]
 
     for arg in arguments
         try
             if arg.head == :(::)
                 push!(gf_args, arg.args[1])
-                push!(specializers, eval(arg.args[2]))
+                push!(specializers, arg.args[2])
             end
         catch
             push!(gf_args, arg)
@@ -246,22 +248,23 @@ macro defmethod(form)
         end
     end
 
-    # Checking if the generic function is defined
-    if !isdefined(Jos, gf_name)
-        new_gf_expr = :($(gf_name)($(gf_args...)))
-        eval(:(@defgeneric $new_gf_expr))
-        println("Generic Function '$(new_gf_expr)' was automatically created!")
+    quote
+        # Checking if the generic function is defined
+        if !@isdefined($gf_name)
+            @defgeneric $gf_name($(gf_args...))
+            println("Generic Function '$($gf_name)' was automatically created!")
+        else
+            # If gf was already defined, check if the number of arguments of the method is the same as the gf
+            if length($(gf_name).params) != length($(gf_args))
+                error("GF '$($(gf_name))' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
+            end
+        end
+
+        _add_method($gf_name, MClass[$(specializers...)], (call_next_method::Function, $(gf_args...)) -> $(form.args[2]))
+        println("Method added to GF '$($(gf_name))' with specializers: $($(specializers...))")
     end
-
-    # Get the variable that contains the generic function
-    eval(:(gf = $gf_name))
-
-    # TODO: Add method behavior
-    _add_method(gf, specializers, (
-        call_next_method::Function) -> println(io, ""))
-
-    println("Method added to GF '$(gf_name)' with specializers: $(specializers...)")
 end
+
 
 # ---- Generic Functions Calling ----
 
@@ -472,8 +475,7 @@ _add_method(print_object, MClass[MultiMethod, Top],
 _add_method(print_object, MClass[GenericFunction, Top],
     (call_next_method::Function, gf::MGenericFunction, io::IO) ->
         print(io,
-            "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method" *
-            "$(length(gf.methods) > 1 ? "s" : "")>"))
+            "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>"))
 
 function Base.show(io::IO, cls::MClass)
     print_object(cls, io)
