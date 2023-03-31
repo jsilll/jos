@@ -4,7 +4,7 @@ Julia Object System
 ### TODO Lista
 - [ ] 2.1 Classes
     - [ ] @defclass(ComplexNumber, [], [real, imag])
-- [x] 2.2 MObjects
+- [x] 2.2 MInstances
 - [x] 2.3 Slot Access
 - [ ] 2.4 Generic Functions and Methods
     - [x] @defgeneric

@@ -1,6 +1,7 @@
 using Test, Jos
 
 # ---- Helper Functions ----
+
 function get_print_object_output(c)
     io = IOBuffer()
     Jos.print_object(c, io)
@@ -8,6 +9,7 @@ function get_print_object_output(c)
 end
 
 # ---- Complex Numbers Example ----
+
 const ComplexNumber = Jos._new_default_class(:ComplexNumber, [:real, :imag], [Jos.Object])
 
 const c1 = Jos.new(ComplexNumber, real=1, imag=2)
@@ -22,6 +24,7 @@ Jos._add_method(Jos.print_object, [ComplexNumber, Jos.Top],
     (call_next_method, c, io) -> print(io, "$(c.real)$(c.imag < 0 ? "-" : "+")$(abs(c.imag))i"))
 
 # ---- Shapes and Devices Example ----
+
 const Shape = Jos._new_default_class(:Shape, Symbol[], [Jos.Object])
 
 const Line = Jos._new_default_class(:Line, [:from, :to], [Shape])
@@ -47,6 +50,7 @@ Jos._add_method(draw, [Circle, Printer],
     (call_next_method::Function, circle, printer) -> "Drawing a circle on a printer")
 
 # ---- Mixins Example ----
+
 const ColorMixin = Jos._new_default_class(:ColorMixin, [:color], [Jos.Object])
 
 const ColoredLine = Jos._new_default_class(:ColoredLine, Symbol[], [ColorMixin, Line])
@@ -63,6 +67,7 @@ Jos._add_method(draw, [ColorMixin, Device],
 )
 
 # ---- Tests Start ----
+
 @testset "2.1 Classes" begin
     # -- Test Jos.Top -- 
     @test Jos.Top.name === :Top
@@ -154,8 +159,8 @@ Jos._add_method(draw, [ColorMixin, Device],
     @test Jos._Int64.cpl == [Jos._Int64, Jos.Object, Jos.Top]
     @test Jos._Int64.direct_superclasses == [Jos.Object]
 
-    @test Jos._Int64.slots == [:value]
-    @test Jos._Int64.direct_slots == [:value]
+    @test Jos._Int64.slots == []
+    @test Jos._Int64.direct_slots == []
 
     @test Jos._Int64.defaulted == Dict{Symbol,Any}()
 
@@ -168,18 +173,16 @@ Jos._add_method(draw, [ColorMixin, Device],
     @test Jos._String.cpl == [Jos._String, Jos.Object, Jos.Top]
     @test Jos._String.direct_superclasses == [Jos.Object]
 
-    @test Jos._String.slots == [:value]
-    @test Jos._String.direct_slots == [:value]
+    @test Jos._String.slots == []
+    @test Jos._String.direct_slots == []
 
     @test Jos._String.defaulted == Dict{Symbol,Any}()
 
     @test Jos.class_of(Jos._String) === Jos.BuiltInClass
     @test get_print_object_output(Jos._String) == "<BuiltInClass _String>"
-
-    # -- TODO: Test @defclass -- 
 end
 
-@testset "2.2 MObjects" begin
+@testset "2.2 Objects" begin
     # -- Test Jos.new with Too Many Arguments --
     @test_throws ErrorException Jos.new(ComplexNumber, real=1, imag=2, wrong=3)
 
@@ -251,8 +254,8 @@ end
 
     @test Jos.class_of(c1) === ComplexNumber
 
-    # DUVIDA: Isto deve ser assim?
-    @test Jos.class_of(1) === Jos.Top
+    @test Jos.class_of(1) === Jos._Int64
+    @test Jos.class_of("Jos") === Jos._String
 
     # -- Test ComplexNumber --
     @test ComplexNumber.name === :ComplexNumber
@@ -290,27 +293,24 @@ end
 
 @testset "2.9 Generic Function Calls" begin
     # -- Test no_applicable_method --
-    # DUVIDA: contradicao no enunciado?
-    # Jos.class_of(1) === Jos._Int64
     @test_throws ErrorException add(1, 2)
 
     # -- Test call_next_method --
     Jos.@defgeneric foo(x)
 
     Jos._add_method(foo, Jos.MClass[Jos.Top],
-        (call_next_method, x::Jos.MObject) ->
-            ["Top"])
+        (call_next_method, x) ->
+            "Top")
 
     Jos._add_method(foo, Jos.MClass[Jos.Object],
-        (call_next_method, x::Jos.MObject) ->
-            ["Object", call_next_method()...])
+        (call_next_method, x) ->
+            ["Object", call_next_method()])
 
     Jos._add_method(foo, Jos.MClass[Jos._Int64],
-        (call_next_method, x::Jos.MObject) ->
+        (call_next_method, x) ->
             ["_Int64", call_next_method()...])
 
-    i = Jos.new(Jos._Int64, value=1)
-    @test foo(i) == ["_Int64", "Object", "Top"]
+    @test foo(1) == ["_Int64", "Object", "Top"]
 end
 
 @testset "2.10 Multiple Dispatch" begin
@@ -321,6 +321,7 @@ end
         "Drawing a circle on a screen"]
 
     devices = [Jos.new(Printer, color=:black), Jos.new(Screen, color=:black)]
+
     shapes = [Jos.new(Line, from=1, to=2), Jos.new(Circle, center=1, radius=2)]
 
     i = 1
@@ -353,21 +354,15 @@ end
 
 @testset "2.12 Class Hierarchy" begin
     # -- Test that Class Hierarchy is finite --
-    # julia> ColoredCircle.direct_superclasses
-    # [<Class ColorMixin>, <Class Circle>]
-    # > ans[1].direct_superclasses
-    # [<Class Object>]
-    # > ans[1].direct_superclasses
-    # [<Class Top>]
-    # > ans[1].direct_superclasses
-    # []
+    @test ColoredCircle.direct_superclasses == [ColorMixin, Circle]
 
-    # -- Test that Outer Objects are Top --
-    # DUVIDA: Vale a pena ter uma classe que representa
-    # objetos externos ao Jos e que herda de Top?
+    @test ColorMixin.direct_superclasses == [Jos.Object]
+
+    @test Jos.Object.direct_superclasses == [Jos.Top]
 end
 
 @testset "2.13 Class Precedence List" begin
+    # -- Test Class Precedence List --
     A = Jos.MClass(:A, Symbol[], Jos.MClass[])
     B = Jos.MClass(:B, Symbol[], Jos.MClass[])
     C = Jos.MClass(:C, Symbol[], Jos.MClass[])
@@ -375,16 +370,17 @@ end
     E = Jos.MClass(:E, Symbol[], Jos.MClass[A, C])
     F = Jos.MClass(:F, Symbol[], Jos.MClass[D, E])
 
-    # -- Test Class Precedence List --
     @test Jos._compute_cpl(F) == Vector{Jos.MClass}([F, D, E, A, B, C])
 end
 
 @testset "2.14 Built-In Classes" begin
-    # DUVIDA: Como implementar? class_of(1) == Jos._Int64
-    # DUVIDA: Como implementar? class_of("a") == Jos._String
-
     # -- Test Built-In Classes --
+    @test Jos.class_of(1) == Jos._Int64
+
+    @test Jos.class_of("a") == Jos._String
+
     @test Jos.class_of(Jos._Int64) == Jos.BuiltInClass
+
     @test Jos.class_of(Jos._String) == Jos.BuiltInClass
 end
 
@@ -395,12 +391,12 @@ end
     @test Jos.class_slots(ColoredCircle) == [:color, :center, :radius]
     @test Jos.class_direct_slots(ColoredCircle) == []
 
-    @test Jos.class_cpl(ColoredCircle) == [ColoredCircle, ColorMixin, Circle, Shape, Jos.Object, Jos.Top]
+    @test Jos.class_cpl(ColoredCircle) == [ColoredCircle, ColorMixin, Circle, Jos.Object, Shape, Jos.Top]
     @test Jos.class_direct_superclasses(ColoredCircle) == [ColorMixin, Circle]
 
-    # @test length(Jos.generic_methods(draw)) == 2
+    @test length(Jos.generic_methods(draw)) == 5
 
-    # @test length(Jos.method_specializers(Jos.generic_methods(draw)[1])) == 2
+    @test length(Jos.method_specializers(Jos.generic_methods(draw)[1])) == 2
 end
 
 @testset "2.16.1 Class Instantiation Protocol" begin
