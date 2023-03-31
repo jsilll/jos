@@ -60,7 +60,7 @@ Class.cpl = MClass[Class, Object, Top]
 function _compute_cpl(cls::MClass)::Vector{MClass}
     function aux(superclasses::Vector{MClass}, cpl::Vector{MClass})::Vector{MClass}
         if length(superclasses) == 0
-            return cpl
+            cpl
         else
             indirect = MClass[]
             for superclass in superclasses
@@ -85,13 +85,7 @@ end
 # ---- Internal Compute Class Defaulted Slots ----
 
 function _compute_defaulted(cls::MClass)::Dict{Symbol,Any}
-    defaulted = Dict{Symbol,Any}()
-    for superclass in reverse(cls.cpl)
-        for (slot, value) in superclass.defaulted
-            defaulted[slot] = value
-        end
-    end
-    defaulted
+    Dict{Symbol,Any}([slot => value for superclass in reverse(cls.cpl) for (slot, value) in superclass.defaulted])
 end
 
 # ---- Internal Default Class Constructor ----
@@ -203,8 +197,14 @@ macro defgeneric(form)
         error("Generic Function name must contain only lowercase letters and underscores.")
     end
 
-    name = form.args[1]
-    args = form.args[2:end]
+    local name, args
+
+    try
+        name = form.args[1]
+        args = form.args[2:end]
+    catch err
+        error("Index out of bounds!", "\n", err)
+    end
 
     if length(args) < 1
         error("A Generic Function must have at least one argument!")
@@ -221,6 +221,7 @@ macro defgeneric(form)
 end
 
 # ---- Method Definition Macro ----
+
 # Question: New method with same specializers as an existing one. What should happen?
 macro defmethod(form)
     local gf_name, arguments
@@ -228,7 +229,6 @@ macro defmethod(form)
     try
         gf_name = form.args[1].args[1]
         arguments = form.args[1].args[2:end]
-
     catch err
         error("Index out of bounds!", "\n", err)
     end
@@ -244,7 +244,7 @@ macro defmethod(form)
             end
         catch
             push!(gf_args, arg)
-            push!(specializers, Top)
+            push!(specializers, Top.name)
         end
     end
 
@@ -252,29 +252,31 @@ macro defmethod(form)
         # Checking if the generic function is defined
         if !@isdefined($gf_name)
             @defgeneric $gf_name($(gf_args...))
-            println("Generic Function '$($gf_name)' was automatically created!")
         else
             # If gf was already defined, check if the number of arguments of the method is the same as the gf
             if length($(gf_name).params) != length($(gf_args))
-                error("GF '$($(gf_name))' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
+                error("GenericFunction '$($(gf_name))' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
             end
         end
 
+        # Specializing the method
         _add_method($gf_name, MClass[$(specializers...)], (call_next_method::Function, $(gf_args...)) -> $(form.args[2]))
-        println("Method added to GF '$($(gf_name))' with specializers: $($(specializers...))")
     end
 end
 
 
 # ---- Generic Functions Calling ----
 
-@defgeneric no_applicable_method(gf, args)
+@defmethod no_applicable_method(gf::GenericFunction, args) =
+    error("No applicable method for function $(gf.name) with arguments($(join([class_of(arg).name for arg in args], ", ")))")
 
-# DUVIDA: Como deve ficar o specializer de args?
-_add_method(no_applicable_method, MClass[GenericFunction, Top],
-    (call_next_method::Function, gf::MGenericFunction, args) ->
-        error("No applicable method for function $(gf.name) with arguments(" *
-              "$(join([class_of(arg).name for arg in args], ", ")))"))
+function specificity(mm::MMultiMethod, args)
+    res = 0
+    for (i, specializer) in enumerate(mm.specializers)
+        res = res * 10 + findfirst(x -> x === specializer, class_of(args[i]).cpl)
+    end
+    -res
+end
 
 function (gf::MGenericFunction)(args...)
     # Getting applicable methods
@@ -296,18 +298,10 @@ function (gf::MGenericFunction)(args...)
     if length(applicable_methods) == 0
         no_applicable_method(gf, collect(args))
     else
-        function specificity(mm::MMultiMethod)::Int
-            res = 0
-            for (i, specializer) in enumerate(mm.specializers)
-                res = res * 10 + findfirst(x -> x === specializer, class_of(args[i]).cpl)
-            end
-            -res
-        end
-
         # Sorting applicable methods by specificity
-        sort!(applicable_methods, by=mm -> specificity(mm), rev=true)
+        sort!(applicable_methods, by=mm -> specificity(mm, args), rev=true)
 
-        # Calling applicable methods
+        # Call Next Method Closure
         method_idx = 1
         function call_next_method()
             if method_idx == length(applicable_methods)
@@ -316,13 +310,15 @@ function (gf::MGenericFunction)(args...)
                 applicable_methods[method_idx+=1].procedure(call_next_method, args...)
             end
         end
+
+        # Call the most specific method
         applicable_methods[1].procedure(call_next_method, args...)
     end
 end
 
 # ---- Class Instatiation Protocol ----
 
-function _allocate_instance(cls::MClass)
+@defmethod allocate_instance(cls::Class) = begin
     if cls === Top
         error("Cannot instantiate Top class.")
     elseif cls === GenericFunction
@@ -336,68 +332,55 @@ function _allocate_instance(cls::MClass)
     end
 end
 
-@defgeneric allocate_instance(cls)
-
-_add_method(allocate_instance, MClass[Class],
-    (call_next_method::Function, cls::MClass) -> _allocate_instance(cls))
-
-@defgeneric initialize(object, initargs)
-
-_add_method(initialize, MClass[GenericFunction, Top],
-    (call_next_method::Function, gf::MGenericFunction, initargs::Base.Pairs) -> begin
-        for (k, v) in initargs
-            if !(k in GenericFunction.slots)
-                error("Invalid slot name: $k")
-            else
-                Base.setproperty!(gf, k, v)
-            end
+@defmethod initialize(gf::GenericFunction, initargs) = begin
+    for (k, v) in initargs
+        if !(k in GenericFunction.slots)
+            error("Invalid slot name: $k")
+        else
+            Base.setproperty!(gf, k, v)
         end
-    end)
+    end
+end
 
-_add_method(initialize, MClass[MultiMethod, Top],
-    (call_next_method::Function, mm::MMultiMethod, initargs::Base.Pairs) -> begin
-        for (k, v) in initargs
-            if !(k in MultiMethod.slots)
-                error("Invalid slot name: $k")
-            else
-                Base.setproperty!(mm, k, v)
-            end
+@defmethod initialize(mm::MultiMethod, initargs) = begin
+    for (k, v) in initargs
+        if !(k in MultiMethod.slots)
+            error("Invalid slot name: $k")
+        else
+            Base.setproperty!(mm, k, v)
         end
-    end)
+    end
+end
 
-_add_method(initialize, MClass[Object, Top],
-    (call_next_method::Function, obj::MInstance, initargs::Base.Pairs) -> begin
-        slots = Base.getfield(obj, :slots)
-        for (k, v) in class_of(obj).defaulted
-            slots[k] = v
+@defmethod initialize(class::Class, initargs) = begin
+    for (k, v) in initargs
+        if !(k in Class.slots)
+            error("Invalid slot name: $k")
+        else
+            Base.setproperty!(class, k, v)
         end
+    end
+end
 
-        for (k, v) in initargs
-            if !(k in class_of(obj).slots)
-                error("Invalid slot name: $k")
-            end
-            slots[k] = v
+@defmethod initialize(obj::Object, initargs) = begin
+    slots = Base.getfield(obj, :slots)
+    for (k, v) in class_of(obj).defaulted
+        slots[k] = v
+    end
+
+    for (k, v) in initargs
+        if !(k in class_of(obj).slots)
+            error("Invalid slot name: $k")
         end
+        slots[k] = v
+    end
 
-        for slot in class_of(obj).slots
-            if !haskey(slots, slot)
-                error("Slot '$slot' not filled.")
-            end
+    for slot in class_of(obj).slots
+        if !haskey(slots, slot)
+            error("Slot '$slot' not filled.")
         end
-    end)
-
-_add_method(initialize, MClass[Class, Top],
-    (call_next_method::Function, cls::MClass, initargs::Base.Pairs) -> begin
-        for (k, v) in initargs
-            if !(k in Class.slots)
-                error("Invalid slot name: $k")
-            else
-                Base.setproperty!(cls, k, v)
-            end
-        end
-    end)
-
-# DUVIDA: @defmethod initialize(class::Class, initargs) = ???
+    end
+end
 
 function new(cls::MClass; kwargs...)
     if length(kwargs) > length(cls.slots)
@@ -426,7 +409,7 @@ function Base.getproperty(obj::MInstance, name::Symbol)
     # implementing the slot access protocol
     slots = Base.getfield(obj, :slots)
     if haskey(slots, name)
-        return slots[name]
+        slots[name]
     else
         error("Invalid slot name: $name")
     end
@@ -446,7 +429,7 @@ end
 function Base.getproperty(cls::MClass, name::Symbol)
     # TODO: this should call some generic function for
     # implementing the slot access protocol
-    return Base.getfield(cls, name)
+    Base.getfield(cls, name)
 end
 
 # ---- Compute Class Precedence List Protocol ----
@@ -457,43 +440,36 @@ end
 
 # ---- print-object Generic Function and respective Base.show specializations ----
 
-@defgeneric print_object(obj, io)
-
-_add_method(print_object, MClass[Object, Top],
-    (call_next_method::Function, obj::MInstance, io::IO) ->
-        print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>"))
-
-_add_method(print_object, MClass[Class, Top],
-    (call_next_method::Function, cls::MClass, io::IO) ->
-        print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>"))
-
-_add_method(print_object, MClass[MultiMethod, Top],
-    (call_next_method::Function, mm::MMultiMethod, io::IO) ->
-        print(io, "<MultiMethod $(mm.generic_function.name)(" *
-                  "$(join([specializer.name for specializer in mm.specializers], ", ")))>"))
-
-_add_method(print_object, MClass[GenericFunction, Top],
-    (call_next_method::Function, gf::MGenericFunction, io::IO) ->
-        print(io,
-            "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>"))
-
-function Base.show(io::IO, cls::MClass)
-    print_object(cls, io)
-end
+@defmethod print_object(obj::Object, io) =
+        print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>")
 
 function Base.show(io::IO, obj::MInstance)
     print_object(obj, io)
 end
 
+@defmethod print_object(cls::Class, io) =
+        print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>")
+
+function Base.show(io::IO, cls::MClass)
+    print_object(cls, io)
+end
+
+@defmethod print_object(mm::MultiMethod, io) =
+        print(io, "<MultiMethod $(mm.generic_function.name)($(join([specializer.name for specializer in mm.specializers], ", ")))>")
+
 function Base.show(io::IO, mm::MMultiMethod)
     print_object(mm, io)
 end
+
+@defmethod print_object(gf::GenericFunction, io) =
+        print(io,"<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>")
 
 function Base.show(io::IO, gf::MGenericFunction)
     print_object(gf, io)
 end
 
 # ---- Define Class Macro ----
+
 #arguments are not corret?
 macro defclass(classname, supers=[:Object], slots=Symbol[])
 
