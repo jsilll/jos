@@ -1,7 +1,9 @@
 name = "Jos"
-uuid = "b4fb05ce-14fe-4ca1-9d65-cd6f186a7402"
-authors = ["João Silveira <joao.freixial.silveira@gmail.com>", "Francisco António <francisco.antonio@tecnico.ulisboa.pt>", "João Caldeira <joao.ferreira.caldeira@tecnico.ulisboa.pt>"]
 version = "0.1.0"
+uuid = "b4fb05ce-14fe-4ca1-9d65-cd6f186a7402"
+authors = ["João Silveira <joao.freixial.silveira@gmail.com>", 
+           "Francisco António <francisco.antonio@tecnico.ulisboa.pt>", 
+           "João Caldeira <joao.ferreira.caldeira@tecnico.ulisboa.pt>"]
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

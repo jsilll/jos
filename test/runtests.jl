@@ -13,58 +13,51 @@ end
 const ComplexNumber = Jos._new_default_class(:ComplexNumber, [:real, :imag], [Jos.Object])
 
 const c1 = Jos.new(ComplexNumber, real=1, imag=2)
+
 const c2 = Jos.new(ComplexNumber, real=3, imag=4)
 
-Jos.@defgeneric add(x, y)
+Jos.@defmethod add(a::ComplexNumber, b::ComplexNumber) = 
+    Jos.new(ComplexNumber, real=a.real + b.real, imag=a.imag + b.imag)
 
-Jos._add_method(add, [ComplexNumber, ComplexNumber],
-    (call_next_method, a, b) -> Jos.new(ComplexNumber, real=a.real + b.real, imag=a.imag + b.imag))
-
-Jos._add_method(Jos.print_object, [ComplexNumber, Jos.Top],
-    (call_next_method, c, io) -> print(io, "$(c.real)$(c.imag < 0 ? "-" : "+")$(abs(c.imag))i"))
+Jos.@defmethod print_object(c::ComplexNumber, io) =
+    print(io, "$(c.real)$(c.imag < 0 ? "-" : "+")$(abs(c.imag))i")
 
 # ---- Shapes and Devices Example ----
 
 const Shape = Jos._new_default_class(:Shape, Symbol[], [Jos.Object])
 
 const Line = Jos._new_default_class(:Line, [:from, :to], [Shape])
+
 const Circle = Jos._new_default_class(:Circle, [:center, :radius], [Shape])
 
 const Device = Jos._new_default_class(:Device, Symbol[:color], [Jos.Object])
 
 const Screen = Jos._new_default_class(:Screen, Symbol[], [Device])
+
 const Printer = Jos._new_default_class(:Printer, Symbol[], [Device])
 
-Jos.@defgeneric draw(shape, device)
+Jos.@defmethod draw(shape::Line, device::Screen) = "Drawing a line on a screen"
 
-Jos._add_method(draw, [Line, Screen],
-    (call_next_method::Function, line, screen) -> "Drawing a line on a screen")
+Jos.@defmethod draw(shape::Circle, device::Screen) = "Drawing a circle on a screen"
 
-Jos._add_method(draw, [Circle, Screen],
-    (call_next_method::Function, circle, screen) -> "Drawing a circle on a screen")
+Jos.@defmethod draw(shape::Line, device::Printer) = "Drawing a line on a printer"
 
-Jos._add_method(draw, [Line, Printer],
-    (call_next_method::Function, line, printer) -> "Drawing a line on a printer")
-
-Jos._add_method(draw, [Circle, Printer],
-    (call_next_method::Function, circle, printer) -> "Drawing a circle on a printer")
+Jos.@defmethod draw(shape::Circle, device::Printer) = "Drawing a circle on a printer"
 
 # ---- Mixins Example ----
 
 const ColorMixin = Jos._new_default_class(:ColorMixin, [:color], [Jos.Object])
 
 const ColoredLine = Jos._new_default_class(:ColoredLine, Symbol[], [ColorMixin, Line])
+
 const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [ColorMixin, Circle])
 
-Jos._add_method(draw, [ColorMixin, Device],
-    (call_next_method::Function, circle, device) ->
-        let previous_color = device.color
-            device.color = circle.color
-            action = call_next_method()
-            device.color = previous_color
-            ["$(circle.color)", action, "$(previous_color)"]
-        end
-)
+@defmethod add(shape::ColorMixin, device::Device) = 
+    let previous_color = device.color
+        device.color = shape.color
+        action = call_next_method()
+        device.color = previous_color
+        [shape.color, action, previous_color]
 
 # ---- Tests Start ----
 

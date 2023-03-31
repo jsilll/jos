@@ -190,10 +190,8 @@ end
 macro defgeneric(form)
     if form.head != :call
         error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
-    end
-
+    elseif isnothing(match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1])))
     # Starts with 2 or more letters, no more than one underscore in a row and only lower case letters
-    if isnothing(match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1])))
         error("Generic Function name must contain only lowercase letters and underscores.")
     end
 
@@ -203,11 +201,11 @@ macro defgeneric(form)
         name = form.args[1]
         args = form.args[2:end]
     catch err
-        error("Index out of bounds!", "\n", err)
+        error("Invalid syntax. Use: @defgeneric function_name(arg1, arg2, ...)", "\n", err)
     end
 
     if length(args) < 1
-        error("A Generic Function must have at least one argument!")
+        error("Generic Function must have at least one argument.")
     end
 
     quote
@@ -230,17 +228,19 @@ macro defmethod(form)
         gf_name = form.args[1].args[1]
         arguments = form.args[1].args[2:end]
     catch err
-        error("Index out of bounds!", "\n", err)
+        error("Invalid syntax. Use: @defmethod function_name(arg1::Class1, arg2::Class2, ...)", "\n", err)
     end
 
-    gf_args = Symbol[]
-    specializers = Symbol[]
+    local gf_args = Symbol[]
+    local specializers = Symbol[]
 
     for arg in arguments
         try
             if arg.head == :(::)
                 push!(gf_args, arg.args[1])
                 push!(specializers, arg.args[2])
+            else
+                error("Invalid syntax. Use: @defmethod function_name(arg1::Class1, arg2::Class2, ...)")
             end
         catch
             push!(gf_args, arg)
@@ -252,18 +252,14 @@ macro defmethod(form)
         # Checking if the generic function is defined
         if !@isdefined($gf_name)
             @defgeneric $gf_name($(gf_args...))
-        else
+        elseif length($(gf_name).params) != length($(gf_args))
             # If gf was already defined, check if the number of arguments of the method is the same as the gf
-            if length($(gf_name).params) != length($(gf_args))
-                error("GenericFunction '$($(gf_name))' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
-            end
+            error("GenericFunction '$($(gf_name))' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
         end
-
         # Specializing the method
-        _add_method($gf_name, MClass[$(specializers...)], (call_next_method::Function, $(gf_args...)) -> $(form.args[2]))
+        _add_method($(gf_name), [$(specializers...)], (call_next_method::Function, $(gf_args...)) -> $(form.args[2]))
     end
 end
-
 
 # ---- Generic Functions Calling ----
 
@@ -473,7 +469,6 @@ end
 #arguments are not corret?
 macro defclass(classname, supers=[:Object], slots=Symbol[])
 
-    #esc to use gensym?
     classname = esc(classname)
     supers = esc(supers)
     slots = esc(slots)

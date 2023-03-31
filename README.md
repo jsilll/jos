@@ -1,7 +1,7 @@
 # Jos
 Julia Object System
 
-### TODO Lista
+### TODO
 - [ ] 2.1 Classes
     - [ ] @defclass(ComplexNumber, [], [real, imag])
 - [x] 2.2 MInstances
