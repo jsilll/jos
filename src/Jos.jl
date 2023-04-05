@@ -191,7 +191,7 @@ macro defgeneric(form)
     if form.head != :call
         error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
     elseif isnothing(match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1])))
-    # Starts with 2 or more letters, no more than one underscore in a row and only lower case letters
+        # Starts with 2 or more letters, no more than one underscore in a row and only lower case letters
         error("Generic Function name must contain only lowercase letters and underscores.")
     end
 
@@ -322,7 +322,7 @@ end
     elseif cls === MultiMethod
         MMultiMethod((call_next_method) -> nothing, MClass[], nothing)
     elseif cls === Class
-        MClass(:Null, MClass[], Symbol[], Dict{Symbol, Any}(), nothing, Symbol[], MClass[]) 
+        MClass(:Null, MClass[], Symbol[], Dict{Symbol,Any}(), nothing, Symbol[], MClass[])
     else
         MInstance(cls, Dict())
     end
@@ -398,7 +398,27 @@ end
 
 # TODO: slot access protocol
 # DUVIDA: isto tem mesmo de levar o idx?
-@defgeneric compute_getter_and_setter(cls, slot)
+@defgeneric compute_getter_and_setter(cls, slotname, slotindex)
+
+
+#@defmethod compute_getter_and_setter(cls::MInstance, slotname::Symbol, slotindex::Int) = begin
+#
+#    getter(cls::MInstance) = cls.slots[slotindex]
+#
+#    setter(cls::MInstance, newval) = (cls.slots[slotindex] = newval)
+
+    # Return the tuple of non-generic functions
+#    return (getter, setter)
+#end
+
+#@defmethod compute_getter_and_setter(cls::MClass, slotname::Symbol, slotindex::Int) = begin
+
+#    getter(cls::MClass) = cls.slots[slotindex]
+
+#    setter(cls::MClass, newval) = (cls.slots[slotindex] = newval)
+    # Return the tuple of non-generic functions
+#    return (getter, setter)
+#end
 
 function Base.getproperty(obj::MInstance, name::Symbol)
     # TODO: this should call some generic function for
@@ -437,28 +457,28 @@ end
 # ---- print-object Generic Function and respective Base.show specializations ----
 
 @defmethod print_object(obj::Object, io) =
-        print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>")
+    print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>")
 
 function Base.show(io::IO, obj::MInstance)
     print_object(obj, io)
 end
 
 @defmethod print_object(cls::Class, io) =
-        print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>")
+    print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>")
 
 function Base.show(io::IO, cls::MClass)
     print_object(cls, io)
 end
 
 @defmethod print_object(mm::MultiMethod, io) =
-        print(io, "<MultiMethod $(mm.generic_function.name)($(join([specializer.name for specializer in mm.specializers], ", ")))>")
+    print(io, "<MultiMethod $(mm.generic_function.name)($(join([specializer.name for specializer in mm.specializers], ", ")))>")
 
 function Base.show(io::IO, mm::MMultiMethod)
     print_object(mm, io)
 end
 
 @defmethod print_object(gf::GenericFunction, io) =
-        print(io,"<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>")
+    print(io, "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>")
 
 function Base.show(io::IO, gf::MGenericFunction)
     print_object(gf, io)
