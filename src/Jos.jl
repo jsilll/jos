@@ -190,9 +190,6 @@ end
 macro defgeneric(form)
     if form.head != :call
         error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
-    elseif isnothing(match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1])))
-        # Starts with 2 or more letters, no more than one underscore in a row and only lower case letters
-        error("Generic Function name must contain only lowercase letters and underscores.")
     end
 
     local name, args
@@ -206,14 +203,14 @@ macro defgeneric(form)
 
     if length(args) < 1
         error("Generic Function must have at least one argument.")
-    end
-
-    quote
-        # Checking if the name has already been defined
-        if @isdefined($name)
-            @error("Generic Function '$($name.name)' already defined!")
-        else
-            global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+    else
+        quote
+            # Checking if the name has already been defined
+            # if @isdefined(name)
+            #    @error("Generic Function '$($name)' already defined!")
+            # else
+            $(esc(name)) = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+            # end
         end
     end
 end
@@ -248,16 +245,21 @@ macro defmethod(form)
         end
     end
 
+    gf_name = esc(gf_name)
+    gf_args = [esc(arg) for arg in gf_args]
+    specializers = [esc(spec) for spec in specializers]
+
+    dump(gf_args)
+
     quote
-        # Checking if the generic function is defined
-        if !@isdefined($gf_name)
-            @defgeneric $gf_name($(gf_args...))
+        if !@isdefined($(gf_name.head))
+            @defgeneric $(gf_name.head)($([expr.args[1] for expr in gf_args]...))
         elseif length($(gf_name).params) != length($(gf_args))
-            # If gf was already defined, check if the number of arguments of the method is the same as the gf
-            error("GenericFunction '$($(gf_name))' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
+            error("GenericFunction '$($gf_name)' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
         end
         # Specializing the method
-        _add_method($(gf_name), [$(specializers...)], (call_next_method::Function, $(gf_args...)) -> $(form.args[2]))
+        _add_method($gf_name, [$(specializers...)],
+            ($(esc(:call_next_method))::$(esc(Function)), $(gf_args...)) -> $(form.args[2]))
     end
 end
 
@@ -398,27 +400,7 @@ end
 
 # TODO: slot access protocol
 # DUVIDA: isto tem mesmo de levar o idx?
-@defgeneric compute_getter_and_setter(cls, slotname, slotindex)
-
-
-#@defmethod compute_getter_and_setter(cls::MInstance, slotname::Symbol, slotindex::Int) = begin
-#
-#    getter(cls::MInstance) = cls.slots[slotindex]
-#
-#    setter(cls::MInstance, newval) = (cls.slots[slotindex] = newval)
-
-    # Return the tuple of non-generic functions
-#    return (getter, setter)
-#end
-
-#@defmethod compute_getter_and_setter(cls::MClass, slotname::Symbol, slotindex::Int) = begin
-
-#    getter(cls::MClass) = cls.slots[slotindex]
-
-#    setter(cls::MClass, newval) = (cls.slots[slotindex] = newval)
-    # Return the tuple of non-generic functions
-#    return (getter, setter)
-#end
+@defgeneric compute_getter_and_setter(cls, slot)
 
 function Base.getproperty(obj::MInstance, name::Symbol)
     # TODO: this should call some generic function for
