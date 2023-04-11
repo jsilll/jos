@@ -9,6 +9,9 @@ mutable struct MClass
     defaulted::Dict{Symbol,Any}
     meta::Union{Nothing,MClass}
     direct_slots::Vector{Symbol}
+    meta_slots::Dict{Symbol,Any}
+    getters::Dict{Symbol,Function}
+    setters::Dict{Symbol,Function}
     direct_superclasses::Vector{MClass}
 end
 
@@ -35,7 +38,53 @@ end
 
 function _new_base_class(
     name::Symbol, slots::Vector{Symbol}, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})
-    MClass(name, MClass[], slots, Dict{Symbol,Any}(), nothing, direct_slots, direct_superclasses)
+    MClass(name, MClass[], slots, Dict{Symbol,Any}(), nothing, direct_slots, Dict{Symbol,Any}(), Dict{Symbol, Function}(), Dict{Symbol, Function}(), direct_superclasses)
+end
+
+# ---- Class Getter and Setter ----
+
+function Base.getproperty(cls::MClass, name::Symbol)
+    try
+        Base.getfield(cls, name)
+    catch
+        if haskey(cls.meta_slots, name)
+            cls.meta_slots[name]
+        else
+            error("Invalid slot name: $name")
+        end
+    end
+end
+
+function Base.setproperty!(cls::MClass, name::Symbol, value)
+    try
+        Base.setfield!(cls, name, value)
+    catch
+        if haskey(cls.meta_slots, name)
+            cls.meta_slots[name] = value
+        else
+            error("Invalid slot name: $name")
+        end
+    end
+end
+
+# ---- Instance Getter and Setter ----
+
+function Base.getproperty(obj::MInstance, slot::Symbol)
+    slots = Base.getfield(obj, :slots)
+    if haskey(slots, slot)
+        class_of(obj).getters[slot](obj)
+    else
+        error("Invalid slot name: $slot")
+    end
+end
+
+function Base.setproperty!(obj::MInstance, slot::Symbol, value)
+    slots = Base.getfield(obj, :slots)
+    if haskey(slots, slot)
+        class_of(obj).setters[slot](obj, value)
+    else
+        error("Invalid slot name: $slot")
+    end
 end
 
 # ---- Bootstrapping Initial Base Classes ----
@@ -79,7 +128,7 @@ end
 # ---- Internal Compute Class Slots ----
 
 function _compute_slots(cls::MClass)::Vector{Symbol}
-    union([superclass.direct_slots for superclass in cls.cpl]...)
+    vcat(map(cls -> cls.direct_slots, cls.cpl)...)
 end
 
 # ---- Internal Compute Class Defaulted Slots ----
@@ -88,14 +137,47 @@ function _compute_defaulted(cls::MClass)::Dict{Symbol,Any}
     Dict{Symbol,Any}([slot => value for superclass in reverse(cls.cpl) for (slot, value) in superclass.defaulted])
 end
 
+# ---- Internal Compute Meta Slots ----
+
+function _compute_meta_slots(cls::MClass)::Dict{Symbol,Any}
+    meta_slots = Dict{Symbol,Any}()
+
+    for slot in cls.meta.slots
+        if haskey(cls.meta.defaulted, slot)
+            meta_slots[slot] = cls.meta.defaulted[slot]
+        else
+            meta_slots[slot] = missing
+        end
+    end
+
+    meta_slots
+end
+
+# ---- Internal Compute Class Getters ----
+
+function _compute_getter(slot::Symbol)::Function 
+    (obj) -> Base.getfield(obj, :slots)[slot] 
+end
+
+function _compute_setter(slot::Symbol)::Function
+    (obj, value) -> Base.getfield(obj, :slots)[slot] = value
+end
+
 # ---- Internal Default Class Constructor ----
 
-function _new_default_class(
-    name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
-    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots, direct_superclasses)
+function _new_default_class(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
+    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots, Dict{Symbol,Any}(), Dict{Symbol, Function}(), Dict{Symbol, Function}(), direct_superclasses)
+
     cls.cpl = _compute_cpl(cls)
     cls.slots = _compute_slots(cls)
     cls.defaulted = _compute_defaulted(cls)
+    cls.meta_slots = _compute_meta_slots(cls)
+
+    for slot in cls.slots
+        cls.getters[slot] = _compute_getter(slot)
+        cls.setters[slot] = _compute_setter(slot)
+    end
+
     cls
 end
 
@@ -109,9 +191,9 @@ const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(
 
 # ---- Built-in Classes ---
 
-const _Int64 = _new_default_class(:_Int64, Symbol[], MClass[Object], BuiltInClass)
+const _Int64 = _new_default_class(:_Int64, Symbol[], MClass[Top], BuiltInClass)
 
-const _String = _new_default_class(:_String, Symbol[], MClass[Object], BuiltInClass)
+const _String = _new_default_class(:_String, Symbol[], MClass[Top], BuiltInClass)
 
 # ---- Class-Of Non Generic Function ----
 
@@ -190,9 +272,6 @@ end
 macro defgeneric(form)
     if form.head != :call
         error("Invalid @defgeneric syntax. Use: @defgeneric function_name(arg1, arg2, ...)")
-    elseif isnothing(match(r"^[a-z]([a-z]+[_]?)*[a-z]$", String(form.args[1])))
-        # Starts with 2 or more letters, no more than one underscore in a row and only lower case letters
-        error("Generic Function name must contain only lowercase letters and underscores.")
     end
 
     local name, args
@@ -206,21 +285,20 @@ macro defgeneric(form)
 
     if length(args) < 1
         error("Generic Function must have at least one argument.")
-    end
-
-    quote
-        # Checking if the name has already been defined
-        if @isdefined($name)
-            @error("Generic Function '$($name.name)' already defined!")
-        else
-            global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+    else
+        quote
+            # Checking if the name has already been defined
+            if @isdefined($name)
+                @error("Generic Function '$($name.name)' already defined!")
+            else
+                global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+            end
         end
     end
 end
 
 # ---- Method Definition Macro ----
 
-# Question: New method with same specializers as an existing one. What should happen?
 macro defmethod(form)
     local gf_name, arguments
 
@@ -264,7 +342,7 @@ end
 # ---- Generic Functions Calling ----
 
 @defmethod no_applicable_method(gf::GenericFunction, args) =
-    error("No applicable method for function $(gf.name) with arguments($(join([class_of(arg).name for arg in args], ", ")))")
+    error("No applicable method for function $(gf.name) with arguments ($(join(args, ", ")))")
 
 function specificity(mm::MMultiMethod, args)
     res = 0
@@ -312,6 +390,19 @@ function (gf::MGenericFunction)(args...)
     end
 end
 
+# ---- Compute Class Precedence List Protocol ----
+
+@defmethod compute_cpl(cls::Class) = _compute_cpl(cls)
+
+# ---- Compute Slots Protocol ----
+
+@defmethod compute_slots(cls::Class) = _compute_slots(cls)
+
+# ---- Compute Getters and Setters Protocol ----
+
+@defmethod compute_getter_and_setter(_::Class, slot, idx) =
+    (_compute_getter(slot), _compute_setter(slot))
+
 # ---- Class Instatiation Protocol ----
 
 @defmethod allocate_instance(cls::Class) = begin
@@ -322,7 +413,7 @@ end
     elseif cls === MultiMethod
         MMultiMethod((call_next_method) -> nothing, MClass[], nothing)
     elseif cls === Class
-        MClass(:Null, MClass[], Symbol[], Dict{Symbol,Any}(), nothing, Symbol[], MClass[])
+        MClass(:Class, MClass[], Symbol[], Dict{Symbol,Any}(), Class, Symbol[], Dict{Symbol,Any}(), Dict{Symbol, Function}, Dict{Symbol, Function}, [Object])
     else
         MInstance(cls, Dict())
     end
@@ -348,13 +439,18 @@ end
     end
 end
 
-@defmethod initialize(class::Class, initargs) = begin
+@defmethod initialize(cls::Class, initargs) = begin
     for (k, v) in initargs
-        if !(k in Class.slots)
-            error("Invalid slot name: $k")
-        else
-            Base.setproperty!(class, k, v)
-        end
+        Base.setproperty!(cls, k, v)
+    end
+
+    cls.cpl = compute_cpl(cls)
+    cls.slots = compute_slots(cls)
+    cls.defaulted = _compute_defaulted(cls)
+    cls.meta_slots = _compute_meta_slots(cls)
+    
+    for (slot, idx) in enumerate(cls.slots)
+        cls.getters[slot], cls.setters[slot] = compute_getter_and_setter(cls, slot, idx)
     end
 end
 
@@ -390,70 +486,6 @@ function new(cls::MClass; kwargs...)
     end
 end
 
-# ---- Compute Slots Protocol ----
-
-@defgeneric compute_slots(cls)
-
-# ---- Slot Access Protocol ----
-
-# TODO: slot access protocol
-# DUVIDA: isto tem mesmo de levar o idx?
-@defgeneric compute_getter_and_setter(cls, slotname, slotindex)
-
-
-#@defmethod compute_getter_and_setter(cls::MInstance, slotname::Symbol, slotindex::Int) = begin
-#
-#    getter(cls::MInstance) = cls.slots[slotindex]
-#
-#    setter(cls::MInstance, newval) = (cls.slots[slotindex] = newval)
-
-    # Return the tuple of non-generic functions
-#    return (getter, setter)
-#end
-
-#@defmethod compute_getter_and_setter(cls::MClass, slotname::Symbol, slotindex::Int) = begin
-
-#    getter(cls::MClass) = cls.slots[slotindex]
-
-#    setter(cls::MClass, newval) = (cls.slots[slotindex] = newval)
-    # Return the tuple of non-generic functions
-#    return (getter, setter)
-#end
-
-function Base.getproperty(obj::MInstance, name::Symbol)
-    # TODO: this should call some generic function for
-    # implementing the slot access protocol
-    slots = Base.getfield(obj, :slots)
-    if haskey(slots, name)
-        slots[name]
-    else
-        error("Invalid slot name: $name")
-    end
-end
-
-function Base.setproperty!(obj::MInstance, name::Symbol, value)
-    # TODO: this should call some generic function for
-    # implementing the slot access protocol
-    slots = Base.getfield(obj, :slots)
-    if haskey(slots, name)
-        slots[name] = value
-    else
-        error("Invalid slot name: $name")
-    end
-end
-
-function Base.getproperty(cls::MClass, name::Symbol)
-    # TODO: this should call some generic function for
-    # implementing the slot access protocol
-    Base.getfield(cls, name)
-end
-
-# ---- Compute Class Precedence List Protocol ----
-
-@defgeneric compute_cpl(cls)
-# compute_cpl = MGenericFunction(:compute_cpl, Symbol[:cls], MMultiMethod[])
-# _add_method(compute_cpl, MClass[Class], (cls) -> _compute_cpl(cls))
-
 # ---- print-object Generic Function and respective Base.show specializations ----
 
 @defmethod print_object(obj::Object, io) =
@@ -486,7 +518,21 @@ end
 
 # ---- Define Class Macro ----
 
-#arguments are not corret?
+function _new_class(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
+    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots, Dict{Symbol,Any}(), Dict{Symbol, Function}(), Dict{Symbol, Function}(), direct_superclasses)
+
+    cls.cpl = compute_cpl(cls)
+    cls.slots = compute_slots(cls)
+    cls.defaulted = _compute_defaulted(cls)
+    cls.meta_slots = _compute_meta_slots(cls)
+
+    for slot in cls.slots
+        cls.getters[slot], cls.setters[slot] = compute_getter_and_setter(cls, slot, 0)
+    end
+
+    cls
+end
+
 macro defclass(classname, supers=[:Object], slots=Symbol[])
 
     classname = esc(classname)

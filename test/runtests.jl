@@ -8,56 +8,169 @@ function get_print_object_output(c)
     return String(take!(io))
 end
 
+# ---- Base Generic Functions ----
+
+add = Jos.MGenericFunction(:add, [:x, :y], [])
+
+draw = Jos.MGenericFunction(:draw, [:shape, :device], [])
+
+# ---- Base Classes ----
+
+Jos._add_method(add, [Jos._Int64, Jos._Int64], (call_next_method, x, y) -> x + y)
+
+Jos._add_method(add, [Jos._String, Jos._String], (call_next_method, x, y) -> x * y)
+
 # ---- Complex Numbers Example ----
 
-const ComplexNumber = Jos._new_default_class(:ComplexNumber, [:real, :imag], [Jos.Object])
+const ComplexNumber = Jos._new_class(:ComplexNumber, [:real, :imag], [Jos.Object])
 
 const c1 = Jos.new(ComplexNumber, real=1, imag=2)
 
 const c2 = Jos.new(ComplexNumber, real=3, imag=4)
 
-Jos.@defmethod add(a::ComplexNumber, b::ComplexNumber) = 
-    Jos.new(ComplexNumber, real=a.real + b.real, imag=a.imag + b.imag)
+Jos._add_method(add, [ComplexNumber, ComplexNumber], (call_next_method, x, y) -> x + y)
 
-Jos.@defmethod print_object(c::ComplexNumber, io) =
-    print(io, "$(c.real)$(c.imag < 0 ? "-" : "+")$(abs(c.imag))i")
+Jos._add_method(Jos.print_object, [ComplexNumber], (call_next_method, c, io) -> print(io, "$(c.real)$(c.imag < 0 ? "-" : "+")$(abs(c.imag))i"))
 
 # ---- Shapes and Devices Example ----
 
-const Shape = Jos._new_default_class(:Shape, Symbol[], [Jos.Object])
+const Shape = Jos._new_class(:Shape, Symbol[], [Jos.Object])
 
-const Line = Jos._new_default_class(:Line, [:from, :to], [Shape])
+const Line = Jos._new_class(:Line, [:from, :to], [Shape])
 
-const Circle = Jos._new_default_class(:Circle, [:center, :radius], [Shape])
+const Circle = Jos._new_class(:Circle, [:center, :radius], [Shape])
 
-const Device = Jos._new_default_class(:Device, Symbol[:color], [Jos.Object])
+const Device = Jos._new_class(:Device, Symbol[:color], [Jos.Object])
 
-const Screen = Jos._new_default_class(:Screen, Symbol[], [Device])
+const Screen = Jos._new_class(:Screen, Symbol[], [Device])
 
-const Printer = Jos._new_default_class(:Printer, Symbol[], [Device])
+const Printer = Jos._new_class(:Printer, Symbol[], [Device])
 
-Jos.@defmethod draw(shape::Line, device::Screen) = "Drawing a line on a screen"
+Jos._add_method(draw, [Line, Screen], (call_next_method, shape, device) -> "Drawing a Line on a Screen")
 
-Jos.@defmethod draw(shape::Circle, device::Screen) = "Drawing a circle on a screen"
+Jos._add_method(draw, [Circle, Screen], (call_next_method, shape, device) -> "Drawing a Circle on a Screen")
 
-Jos.@defmethod draw(shape::Line, device::Printer) = "Drawing a line on a printer"
+Jos._add_method(draw, [Line, Printer], (call_next_method, shape, device) -> "Drawing a Line on a Printer")
 
-Jos.@defmethod draw(shape::Circle, device::Printer) = "Drawing a circle on a printer"
+Jos._add_method(draw, [Circle, Printer], (call_next_method, shape, device) -> "Drawing a Circle on a Printer")
 
 # ---- Mixins Example ----
 
-const ColorMixin = Jos._new_default_class(:ColorMixin, [:color], [Jos.Object])
+const ColorMixin = Jos._new_class(:ColorMixin, [:color], [Jos.Object])
 
-const ColoredLine = Jos._new_default_class(:ColoredLine, Symbol[], [ColorMixin, Line])
+const ColoredLine = Jos._new_class(:ColoredLine, Symbol[], [ColorMixin, Line])
 
-const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [ColorMixin, Circle])
+const ColoredCircle = Jos._new_class(:ColoredCircle, Symbol[], [ColorMixin, Circle])
 
-@defmethod add(shape::ColorMixin, device::Device) = 
+Jos._add_method(draw, [ColorMixin, Device], (call_next_method, shape, device) ->
     let previous_color = device.color
         device.color = shape.color
         action = call_next_method()
         device.color = previous_color
         [shape.color, action, previous_color]
+    end)
+
+# ---- Counting Class Example ----
+
+const CountingClass = Jos._new_class(:CountingClass, [:counter], [Jos.Class])
+
+CountingClass.defaulted = Dict{Symbol,Any}(:counter => 0)
+
+Jos._add_method(Jos.allocate_instance, [CountingClass], (call_next_method, class) -> begin
+    class.counter += 1
+    call_next_method()
+end
+)
+
+const CountingFoo = Jos._new_class(:CountingFoo, Symbol[], [Jos.Object], CountingClass)
+
+const CountingBar = Jos._new_class(:CountingBar, Symbol[], [Jos.Object], CountingClass)
+
+# ---- Collision Avoiding Class Example ----
+
+const AvoidCollisionClass = Jos._new_class(:AvoidCollisionClass, Symbol[], [Jos.Class])
+
+Jos._add_method(Jos.compute_slots, [AvoidCollisionClass],
+    (call_next_method, class) ->
+        let slots = call_next_method()
+            duplicates = symdiff(slots, unique(slots))
+            isempty(duplicates) ?
+            slots :
+            error("Multiple occurrences of slots: $(join(map(string, duplicates), ", "))")
+        end
+)
+
+const Foo = Jos._new_class(:Foo, [:a, :b], [Jos.Object])
+
+const Bar = Jos._new_class(:Bar, [:b, :c], [Jos.Object])
+
+const FooBar = Jos._new_class(:FooBar, [:a, :d], [Foo, Bar])
+
+# ---- Undoable Class Example ----
+undo_trail = []
+
+save_previous_value = true
+
+current_state() = length(undo_trail)
+
+store_previous(object, slot, value) = push!(undo_trail, (object, slot, value))
+
+restore_state(state) =
+    while length(undo_trail) != state
+        restore(pop!(undo_trail)...)
+    end
+
+restore(object, slot, values) =
+    let previous_save_previous_value = save_previous_value
+        global save_previous_value = false
+        try
+            setproperty!(object, slot, values)
+        finally
+            global save_previous_value = previous_save_previous_value
+        end
+    end
+
+const UndoableClass = Jos._new_class(:UndoableClass, Symbol[], [Jos.Class])
+
+Jos._add_method(Jos.compute_getter_and_setter, [UndoableClass],
+    (call_next_method, cls, slot, idx) ->
+        let (getter, setter) = call_next_method()
+            (getter,
+                (o, v) -> begin
+                    if save_previous_value
+                        store_previous(o, slot, getter(o))
+                    end
+                    setter(o, v)
+                end)
+        end)
+
+const Person = Jos._new_class(:Person, [:name, :age, :friend], [Jos.Object], UndoableClass)
+
+Jos._add_method(Jos.print_object, [Person],
+    (call_next_method, p, io) -> print(io, "[$(p.name), $(p.age)$(ismissing(p.friend) ? "" : " with friend $(p.friend)")]"))
+
+# ---- Flavors Example ----
+
+const FlavorsClass = Jos._new_class(:FlavorsClass, Symbol[], [Jos.Class])
+
+Jos._add_method(Jos.compute_cpl, [FlavorsClass], (call_next_method, cls) ->
+    let depth_first_cpl(class) = [class, foldl(vcat, map(depth_first_cpl, Jos.class_direct_superclasses(class)), init=[])...],
+        base_cpl = [Jos.Object, Jos.Top]
+
+        vcat(unique(filter(!in(base_cpl), depth_first_cpl(cls))), base_cpl)
+    end)
+
+# ---- Multiple Meta-Class Inheritance ----
+
+const UndoableCollisionAvoidingCountingClass = 
+    Jos._new_class(:UndoableCollisionAvoidingCountingClass, Symbol[], [UndoableClass, AvoidCollisionClass, CountingClass])
+
+const NamedThing = Jos._new_class(:NamedThing, [:name], [Jos.Object])
+
+const AnotherPerson = Jos._new_class(:AnotherPerson, [:age, :friend], [NamedThing], UndoableCollisionAvoidingCountingClass)
+
+Jos._add_method(Jos.print_object, [AnotherPerson],
+    (call_next_method, p, io) -> print(io, "[$(p.name), $(p.age)$(ismissing(p.friend) ? "" : " with friend $(p.friend)")]"))
 
 # ---- Tests Start ----
 
@@ -149,8 +262,8 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [ColorMix
     # -- Test Jos._Int64 --
     @test Jos._Int64.name === :_Int64
 
-    @test Jos._Int64.cpl == [Jos._Int64, Jos.Object, Jos.Top]
-    @test Jos._Int64.direct_superclasses == [Jos.Object]
+    @test Jos._Int64.cpl == [Jos._Int64, Jos.Top]
+    @test Jos._Int64.direct_superclasses == [Jos.Top]
 
     @test Jos._Int64.slots == []
     @test Jos._Int64.direct_slots == []
@@ -163,8 +276,8 @@ const ColoredCircle = Jos._new_default_class(:ColoredCircle, Symbol[], [ColorMix
     # -- Test Jos._String -
     @test Jos._String.name === :_String
 
-    @test Jos._String.cpl == [Jos._String, Jos.Object, Jos.Top]
-    @test Jos._String.direct_superclasses == [Jos.Object]
+    @test Jos._String.cpl == [Jos._String, Jos.Top]
+    @test Jos._String.direct_superclasses == [Jos.Top]
 
     @test Jos._String.slots == []
     @test Jos._String.direct_slots == []
@@ -186,8 +299,9 @@ end
     @test_throws ErrorException Jos.new(ComplexNumber, real=1, wrong=3)
 
     # -- Test Jos.new with Missing Not Defaulted Slot --
-    ComplexNumberDefaulted = Jos._new_default_class(:ComplexNumberDefaulted, Symbol[], [ComplexNumber])
-    ComplexNumberDefaulted.defaulted = Dict(:real => 0)
+    ComplexNumberDefaulted = Jos._new_class(:ComplexNumberDefaulted, Symbol[], [ComplexNumber])
+    ComplexNumberDefaulted.defaulted = Dict{Symbol,Any}(:real => 0)
+
     @test Jos.new(ComplexNumberDefaulted, imag=2).real === 0
     @test_throws ErrorException Jos.new(ComplexNumberDefaulted, real=1)
 end
@@ -213,30 +327,9 @@ end
 end
 
 @testset "2.4 Generic Functions and Methods" begin
-    # TODO: @defgeneric
-
-    #@defgeneric reflect_object(obj)
-    #@defgeneric add(a, b)
-    #@defgeneric add(a, b)
-
-    # TODO: @defmethod
-
-    #@defmethod reflect_object(obj::_Int64) = "$(obj) is an _Int64"
-    #@defmethod reflect_object(obj::_String) = "$(obj) is a _String"
-    #@defmethod add(a::_Int64, b::_Int64) = a + b
-    #@defmethod add(a::_Int64, b::_Int64) = a + b
-    #@defmethod add(a::_String, b::_String) = a * b
-    
-    # Calling some methods
-    #println("\nResults:")
-    #println("For reflect_object(1): ", reflect_object(1))
-    #println("For reflect_object('Hello!'): ", reflect_object("Hello"))
-
-    #add_int = add(2,3)
-    #println("For add(2, 3): ", add_int, " [Value: ", add_int, "]")
-    #add_string = add("Ju", "lia")
-    #println("For add('Ju', 'lia'): ", add_string, " [Value: ", add_string, "]")
-
+    # -- Test Jos.add --
+    @test add(1, 2) === 3
+    @test add("Hello ", "World!") === "Hello World!"
 end
 
 @testset "2.5 Pre-defined Generic Functions and Methods" begin
@@ -293,13 +386,14 @@ end
     @test Jos.class_of(add) === Jos.GenericFunction
     @test Jos.class_of(add.methods[1]) === Jos.MultiMethod
 
-    @test get_print_object_output(add) == "<GenericFunction add with 1 method>"
-    @test get_print_object_output(add.methods[1]) == "<MultiMethod add(ComplexNumber, ComplexNumber)>"
+    @test get_print_object_output(add) == "<GenericFunction add with 3 methods>"
+    @test get_print_object_output(add.methods[1]) == "<MultiMethod add(_Int64, _Int64)>"
 end
 
 @testset "2.7 Class Options" begin
     # TODO: @defclass with options
-    # DUVIDA: meter missing é o mesmo que nao inicializar com nada?
+    # @defclass(ComplexNumber, [], [real, imag])
+    @test get_print_object_output(ComplexNumber) == "<Class ComplexNumber>"
 end
 
 @testset "2.8 Readers and Writers" begin
@@ -308,7 +402,8 @@ end
 
 @testset "2.9 Generic Function Calls" begin
     # -- Test no_applicable_method --
-    @test_throws ErrorException add(1, 2)
+    @test_throws ErrorException add(1, "Hello")
+    @test_throws ErrorException add("Hello", 1)
 
     # -- Test call_next_method --
     Jos.@defgeneric foo(x)
@@ -317,42 +412,36 @@ end
         (call_next_method, x) ->
             "Top")
 
-    Jos._add_method(foo, Jos.MClass[Jos.Object],
-        (call_next_method, x) ->
-            ["Object", call_next_method()])
-
     Jos._add_method(foo, Jos.MClass[Jos._Int64],
         (call_next_method, x) ->
-            ["_Int64", call_next_method()...])
+            ["_Int64", call_next_method()])
 
-    @test foo(1) == ["_Int64", "Object", "Top"]
+    @test foo(1) == ["_Int64", "Top"]
 end
 
 @testset "2.10 Multiple Dispatch" begin
     # -- Test with Shapes and Devices Example --
-    expected = ["Drawing a line on a printer",
-        "Drawing a circle on a printer",
-        "Drawing a line on a screen",
-        "Drawing a circle on a screen"]
+    expected = [["Drawing a Line on a Printer",
+            "Drawing a Circle on a Printer"],
+        ["Drawing a Line on a Screen",
+            "Drawing a Circle on a Screen"]]
 
     devices = [Jos.new(Printer, color=:black), Jos.new(Screen, color=:black)]
 
     shapes = [Jos.new(Line, from=1, to=2), Jos.new(Circle, center=1, radius=2)]
 
-    i = 1
-    for device in devices
-        for shape in shapes
-            @test draw(shape, device) == expected[i]
-            i += 1
+    for (device, expect) in zip(devices, expected)
+        for (shape, exp) in zip(shapes, expect)
+            @test draw(shape, device) == exp
         end
     end
 end
 
 @testset "2.11 Multiple Inheritance" begin
     # -- Test Mixins with extension of the Shapes and Devices Example --
-    expected = [["black", "Drawing a line on a printer", "black"],
-        ["red", "Drawing a circle on a printer", "black"],
-        ["blue", "Drawing a line on a printer", "black"]]
+    expected = [[:black, "Drawing a Line on a Printer", :black],
+        [:red, "Drawing a Circle on a Printer", :black],
+        [:blue, "Drawing a Line on a Printer", :black]]
 
     printer = Jos.new(Printer, color=:black)
 
@@ -360,10 +449,8 @@ end
         Jos.new(ColoredCircle, center=1, radius=2, color=:red),
         Jos.new(ColoredLine, from=1, to=2, color=:blue)]
 
-    i = 1
-    for shape in shapes
-        @test draw(shape, printer) == expected[i]
-        i += 1
+    for (shape, expect) in zip(shapes, expected)
+        @test draw(shape, printer) == expect
     end
 end
 
@@ -374,18 +461,20 @@ end
     @test ColorMixin.direct_superclasses == [Jos.Object]
 
     @test Jos.Object.direct_superclasses == [Jos.Top]
+
+    @test Jos.Top.direct_superclasses == []
 end
 
 @testset "2.13 Class Precedence List" begin
     # -- Test Class Precedence List --
-    A = Jos.MClass(:A, Symbol[], Jos.MClass[])
-    B = Jos.MClass(:B, Symbol[], Jos.MClass[])
-    C = Jos.MClass(:C, Symbol[], Jos.MClass[])
-    D = Jos.MClass(:D, Symbol[], Jos.MClass[A, B])
-    E = Jos.MClass(:E, Symbol[], Jos.MClass[A, C])
-    F = Jos.MClass(:F, Symbol[], Jos.MClass[D, E])
+    A = Jos._new_class(:A, Symbol[], Jos.MClass[Jos.Object])
+    B = Jos._new_class(:B, Symbol[], Jos.MClass[Jos.Object])
+    C = Jos._new_class(:C, Symbol[], Jos.MClass[Jos.Object])
+    D = Jos._new_class(:D, Symbol[], Jos.MClass[A, B])
+    E = Jos._new_class(:E, Symbol[], Jos.MClass[A, C])
+    F = Jos._new_class(:F, Symbol[], Jos.MClass[D, E])
 
-    @test Jos._compute_cpl(F) == Vector{Jos.MClass}([F, D, E, A, B, C])
+    @test Jos._compute_cpl(F) == [F, D, E, A, B, C, Jos.Object, Jos.Top]
 end
 
 @testset "2.14 Built-In Classes" begin
@@ -397,6 +486,10 @@ end
     @test Jos.class_of(Jos._Int64) == Jos.BuiltInClass
 
     @test Jos.class_of(Jos._String) == Jos.BuiltInClass
+
+    @test add(1, 2) == 3
+
+    @test add("Hello ", "World!") == "Hello World!"
 end
 
 @testset "2.15 Introspection" begin
@@ -406,8 +499,8 @@ end
     @test Jos.class_slots(ColoredCircle) == [:color, :center, :radius]
     @test Jos.class_direct_slots(ColoredCircle) == []
 
-    @test Jos.class_cpl(ColoredCircle) == [ColoredCircle, ColorMixin, Circle, Jos.Object, Shape, Jos.Top]
     @test Jos.class_direct_superclasses(ColoredCircle) == [ColorMixin, Circle]
+    @test Jos.class_cpl(ColoredCircle) == [ColoredCircle, ColorMixin, Circle, Jos.Object, Shape, Jos.Top]
 
     @test length(Jos.generic_methods(draw)) == 5
 
@@ -415,73 +508,114 @@ end
 end
 
 @testset "2.16.1 Class Instantiation Protocol" begin
-    # TODO
-    # @defclass(CountingClass, [Class], [counter=0])
-    # @defmethod allocate_instance(class::CountingClass) = begin
-    #   class.counter += 1
-    #   call_next_method()
-    # end
-    # @defclass(Foo, [], [], metaclass=CountingClass) == <CountingClass Foo>
-    # @defclass(Bar, [], [], metaclass=CountingClass) == <CountingClass Bar>
-    # new(Foo)
-    # new(Foo)
-    # new(Bar)
-    # Foo.counter == 2
-    # Bar.counter == 1
+    # -- Test CIP with Counting Class --
+    foo1 = Jos.new(CountingFoo)
+    foo2 = Jos.new(CountingFoo)
+    foo3 = Jos.new(CountingFoo)
+    @test CountingFoo.counter == 3
+
+    bar1 = Jos.new(CountingBar)
+    bar2 = Jos.new(CountingBar)
+    @test CountingBar.counter == 2
 end
 
 @testset "2.16.2 The Compute Slots Protocol" begin
-    # TODO
-    # @defmethod compute_slots(class::Class) = 
-    #  vcat(map(class_direct_slots, class_cpl(class))...)
-    # @defclass(Foo, [], [a=1, b=2])
-    # @defclass(Bar, [Foo], [b=3, c=4])
-    # @defclass(FooBar, [Foo, Bar], [a=5, d=6])
-    # class_slots(Bar) == [:a, :d, :a, :b, :b, :c]
-    # foobar1 = new(FooBar)
-    # foobar1.a == 1
-    # foobar1.b == 3
-    # foobar1.c == 4
-    # foobar1.d == 6
+    # -- Test CSP with Collision AvoidCollisionClass --
+    @test Jos.class_slots(FooBar) == [:a, :d, :a, :b, :b, :c]
 
-    # Collision Detection metaclass
-    # @defclass(AvoidCollisionsClass, [Class], [])
-    # @defmethod compute_slots(class::AvoidCollisionsClass) = 
-    # let slots = call_next_method(),
-    #   duplicates = symdiff(slots, unique(slots))
-    #   isempty(duplicates) ? slots :
-    #   error("Multiple occurrences of slots: $(join(map(string, duplicates), ", "))")
-    # end
+    @test_throws ErrorException Jos._new_class(:CAFooBar, [:a, :d], [Foo, Bar], AvoidCollisionClass)
 end
 
 @testset "2.16.3 Slot Access Protocol" begin
-    # TODO: Understand how to implement this
-    # test with undoclass example
+    # -- Test SAP with Slot Access Class --
+    p0 = Jos.new(Person, name="John", age=21, friend=missing)
+    p1 = Jos.new(Person, name="Paul", age=23, friend=missing)
+
+    # Paul has a friend name John    
+    p1.friend = p0
+    state0 = current_state()
+
+    # 32 years later, John changed his name to 'Louis' and got a friend
+    p0.age = 53
+    p1.age = 55
+    p0.name = "Louis"
+    p0.friend = Jos.new(Person, name="Mary", age=19, friend=missing)
+    state1 = current_state()
+
+    # 15 years later, John (hum, I mean 'Louis') died
+    p1.age = 70
+    p1.friend = missing
+    state2 = current_state()
+
+    # Let's go back in time
+    restore_state(state1)
+    @test p0.age == 53
+    @test p1.age == 55
+    @test p0.name == "Louis"
+    @test p0.friend.name == "Mary"
+
+    # And even earlier
+    restore_state(state0)
+    @test p0.age == 21
+    @test p1.age == 23
+    @test p0.name == "John"
+    @test p1.name == "Paul"
+    @test p1.friend.name == "John"
 end
 
 @testset "2.16.4 Class Precedence List Protocol" begin
-    # @defclass(FlavorsClass, [Class], [])
-    # @defmethod compute_cpl(class::FlavorsClass) = 
-    #   let depth_first_cpl(class) =
-    #       [class, foldl(vcat, map(depth_first_cpl, class_direct_superclasses(class)), init=[])...],
-    #       base_cpl = [Object, Top]
-    #       vcat(unique(filter(!in(base_cpl), depth_first_cpl(class))), base_cpl)
-    #   end
+    # -- Test CPLP with Flavors Example --
+    A = Jos._new_class(:A, Symbol[], [Jos.Object], FlavorsClass)
+    B = Jos._new_class(:B, Symbol[], [Jos.Object], FlavorsClass)
+    C = Jos._new_class(:C, Symbol[], [Jos.Object], FlavorsClass)
+    D = Jos._new_class(:D, Symbol[], [A, B], FlavorsClass)
+    E = Jos._new_class(:E, Symbol[], [A, C], FlavorsClass)
+    F = Jos._new_class(:F, Symbol[], [D, E], FlavorsClass)
 
-    # @defclass(A, [], [], metaclass=FlavorsClass)
-    # @defclass(B, [], [], metaclass=FlavorsClass)
-    # @defclass(C, [], [], metaclass=FlavorsClass)
-    # @defclass(D, [A, B], [], metaclass=FlavorsClass)
-    # @defclass(E, [A, C], [], metaclass=FlavorsClass)
-    # @defclass(F, [D, E], [], metaclass=FlavorsClass)
-
-    # compute_cpl(F) == [F, D, A, B, E, C, Object, Top]
+    @test Jos.compute_cpl(F) == [F, D, A, B, E, C, Jos.Object, Jos.Top]
 end
 
 @testset "2.17 Multiple Meta-Class Inheritance" begin
-    # TODO: undoable, collision-avoiding, counting class example
+    # -- Test MMCI --
+    @test_throws ErrorException AnotherNamedThing = 
+        Jos._new_class(:AnotherNamedThing, [:name], [NamedThing], UndoableCollisionAvoidingCountingClass)
+
+    p0 = Jos.new(AnotherPerson, name="John", age=21, friend=missing)
+    p1 = Jos.new(AnotherPerson, name="Paul", age=23, friend=missing)
+
+    # Paul has a friend name John    
+    p1.friend = p0
+    state0 = current_state()
+
+    # 32 years later, John changed his name to 'Louis' and got a friend
+    p0.age = 53
+    p1.age = 55
+    p0.name = "Louis"
+    p0.friend = Jos.new(AnotherPerson, name="Mary", age=19, friend=missing)
+    state1 = current_state()
+
+    # 15 years later, John (hum, I mean 'Louis') died
+    p1.age = 70
+    p1.friend = missing
+    state2 = current_state()
+
+    # Let's go back in time
+    restore_state(state1)
+    @test p0.age == 53
+    @test p1.age == 55
+    @test p0.name == "Louis"
+    @test p0.friend.name == "Mary"
+
+    # And even earlier
+    restore_state(state0)
+    @test p0.age == 21
+    @test p1.age == 23
+    @test p0.name == "John"
+    @test p1.name == "Paul"
+    @test p1.friend.name == "John"
+
+    @test AnotherPerson.counter == 3
 end
 
 @testset "2.18 Extensions" begin
-    # TODO
 end
