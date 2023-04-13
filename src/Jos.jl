@@ -34,11 +34,14 @@ struct MGenericFunction <: MGenericFunctionAbstract
     methods::Vector{MMultiMethod}
 end
 
+export MClass, MInstance, MMultiMethod, MGenericFunction
+
 # ---- Internal Base Class Constructor ----
 
 function _new_base_class(
     name::Symbol, slots::Vector{Symbol}, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})
-    MClass(name, MClass[], slots, Dict{Symbol,Any}(), nothing, direct_slots, Dict{Symbol,Any}(), Dict{Symbol, Function}(), Dict{Symbol, Function}(), direct_superclasses)
+    MClass(name, MClass[], slots, Dict{Symbol,Any}(), nothing, direct_slots, Dict{Symbol,Any}(),
+        Dict{Symbol,Function}(), Dict{Symbol,Function}(), direct_superclasses)
 end
 
 # ---- Class Getter and Setter ----
@@ -104,6 +107,8 @@ Object.cpl = MClass[Object, Top]
 Class.meta = Class
 Class.cpl = MClass[Class, Object, Top]
 
+export Top, Object, Class
+
 # ---- Internal Compute Class Precedence List ----
 
 function _compute_cpl(cls::MClass)::Vector{MClass}
@@ -134,7 +139,8 @@ end
 # ---- Internal Compute Class Defaulted Slots ----
 
 function _compute_defaulted(cls::MClass)::Dict{Symbol,Any}
-    Dict{Symbol,Any}([slot => value for superclass in reverse(cls.cpl) for (slot, value) in superclass.defaulted])
+    Dict{Symbol,Any}([slot => value for superclass in reverse(cls.cpl)
+                      for (slot, value) in superclass.defaulted])
 end
 
 # ---- Internal Compute Meta Slots ----
@@ -153,10 +159,10 @@ function _compute_meta_slots(cls::MClass)::Dict{Symbol,Any}
     meta_slots
 end
 
-# ---- Internal Compute Class Getters ----
+# ---- Internal Compute Class Getter and Setter ----
 
-function _compute_getter(slot::Symbol)::Function 
-    (obj) -> Base.getfield(obj, :slots)[slot] 
+function _compute_getter(slot::Symbol)::Function
+    (obj) -> Base.getfield(obj, :slots)[slot]
 end
 
 function _compute_setter(slot::Symbol)::Function
@@ -165,8 +171,10 @@ end
 
 # ---- Internal Default Class Constructor ----
 
-function _new_default_class(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
-    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots, Dict{Symbol,Any}(), Dict{Symbol, Function}(), Dict{Symbol, Function}(), direct_superclasses)
+function _new_default_class(name::Symbol, direct_slots::Vector{Symbol},
+    direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
+    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots,
+        Dict{Symbol,Any}(), Dict{Symbol,Function}(), Dict{Symbol,Function}(), direct_superclasses)
 
     cls.cpl = _compute_cpl(cls)
     cls.slots = _compute_slots(cls)
@@ -189,11 +197,15 @@ const MultiMethod = _new_default_class(:MultiMethod, collect(fieldnames(MMultiMe
 
 const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(MGenericFunction)), MClass[Object])
 
+export BuiltInClass, MultiMethod, GenericFunction
+
 # ---- Built-in Classes ---
 
 const _Int64 = _new_default_class(:_Int64, Symbol[], MClass[Top], BuiltInClass)
 
 const _String = _new_default_class(:_String, Symbol[], MClass[Top], BuiltInClass)
+
+export _Int64, _String
 
 # ---- Class-Of Non Generic Function ----
 
@@ -225,6 +237,8 @@ function class_of(_::MGenericFunction)::MClass
     GenericFunction
 end
 
+export class_of
+
 # ---- Class-Related Non-Generic Functions ----
 
 function class_name(cls::MClass)::Symbol
@@ -247,17 +261,23 @@ function class_direct_superclasses(cls::MClass)::Vector{MClass}
     cls.direct_superclasses
 end
 
+export class_name, class_cpl, class_slots, class_direct_slots, class_direct_superclasses
+
 # ---- MultiMethod-Related Non-Generic Functions ----
 
 function method_specializers(mm::MMultiMethod)::Vector{MClass}
     mm.specializers
 end
 
+export method_specializers
+
 # ---- GenericFunction-Related Non-Generic Functions ----
 
 function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
     gf.methods
 end
+
+export generic_methods
 
 # ---- Internal Add Method ----
 
@@ -266,6 +286,8 @@ function _add_method(gf::MGenericFunction, specializers::Vector{MClass}, f::Func
     push!(gf.methods, mm)
     nothing
 end
+
+export _add_method
 
 # ---- Generic Function Macro ----
 
@@ -286,16 +308,17 @@ macro defgeneric(form)
     if length(args) < 1
         error("Generic Function must have at least one argument.")
     else
-        quote
-            # Checking if the name has already been defined
+        esc(quote
             if @isdefined($name)
                 @error("Generic Function '$($name.name)' already defined!")
             else
                 global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
             end
-        end
+        end)
     end
 end
+
+export @defgeneric
 
 # ---- Method Definition Macro ----
 
@@ -326,18 +349,17 @@ macro defmethod(form)
         end
     end
 
-    quote
-        # Checking if the generic function is defined
+    esc(quote
         if !@isdefined($gf_name)
             @defgeneric $gf_name($(gf_args...))
         elseif length($(gf_name).params) != length($(gf_args))
-            # If gf was already defined, check if the number of arguments of the method is the same as the gf
             error("GenericFunction '$($(gf_name))' expects $(length($(gf_name).params)) arguments, but $(length($gf_args)) were given!")
         end
-        # Specializing the method
         _add_method($(gf_name), [$(specializers...)], (call_next_method::Function, $(gf_args...)) -> $(form.args[2]))
-    end
+    end)
 end
+
+export @defmethod
 
 # ---- Generic Functions Calling ----
 
@@ -390,18 +412,26 @@ function (gf::MGenericFunction)(args...)
     end
 end
 
+export no_applicable_method
+
 # ---- Compute Class Precedence List Protocol ----
 
 @defmethod compute_cpl(cls::Class) = _compute_cpl(cls)
+
+export compute_cpl
 
 # ---- Compute Slots Protocol ----
 
 @defmethod compute_slots(cls::Class) = _compute_slots(cls)
 
+export compute_slots
+
 # ---- Compute Getters and Setters Protocol ----
 
 @defmethod compute_getter_and_setter(_::Class, slot, idx) =
     (_compute_getter(slot), _compute_setter(slot))
+
+export compute_getter_and_setter
 
 # ---- Class Instatiation Protocol ----
 
@@ -413,7 +443,8 @@ end
     elseif cls === MultiMethod
         MMultiMethod((call_next_method) -> nothing, MClass[], nothing)
     elseif cls === Class
-        MClass(:Class, MClass[], Symbol[], Dict{Symbol,Any}(), Class, Symbol[], Dict{Symbol,Any}(), Dict{Symbol, Function}, Dict{Symbol, Function}, [Object])
+        MClass(:Class, MClass[], Symbol[], Dict{Symbol,Any}(), Class, Symbol[],
+            Dict{Symbol,Any}(), Dict{Symbol,Function}, Dict{Symbol,Function}, [Object])
     else
         MInstance(cls, Dict())
     end
@@ -448,7 +479,7 @@ end
     cls.slots = compute_slots(cls)
     cls.defaulted = _compute_defaulted(cls)
     cls.meta_slots = _compute_meta_slots(cls)
-    
+
     for (slot, idx) in enumerate(cls.slots)
         cls.getters[slot], cls.setters[slot] = compute_getter_and_setter(cls, slot, idx)
     end
@@ -486,6 +517,8 @@ function new(cls::MClass; kwargs...)
     end
 end
 
+export allocate_instance, initialize, new
+
 # ---- print-object Generic Function and respective Base.show specializations ----
 
 @defmethod print_object(obj::Object, io) =
@@ -516,10 +549,13 @@ function Base.show(io::IO, gf::MGenericFunction)
     print_object(gf, io)
 end
 
+export print_object
+
 # ---- Define Class Macro ----
 
 function _new_class(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
-    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots, Dict{Symbol,Any}(), Dict{Symbol, Function}(), Dict{Symbol, Function}(), direct_superclasses)
+    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots, Dict{Symbol,Any}(),
+        Dict{Symbol,Function}(), Dict{Symbol,Function}(), direct_superclasses)
 
     cls.cpl = compute_cpl(cls)
     cls.slots = compute_slots(cls)
@@ -595,5 +631,7 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
         end
     end
 end
+
+export _new_class, @defclass
 
 end # module Jos
