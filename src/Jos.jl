@@ -139,13 +139,16 @@ end
 # ---- Internal Compute Class Defaulted Slots ----
 
 function _compute_defaulted(cls::MClass)::Dict{Symbol,Any}
-    Dict{Symbol,Any}([slot => value for superclass in reverse(cls.cpl)
-                      for (slot, value) in superclass.defaulted])
+    Dict{Symbol,Any}([slot => value for superclass in reverse(cls.cpl) for (slot, value) in superclass.defaulted])
 end
 
 # ---- Internal Compute Meta Slots ----
 
 function _compute_meta_slots(cls::MClass)::Dict{Symbol,Any}
+    if cls.meta == Class
+        return Dict{Symbol,Any}()
+    end
+
     meta_slots = Dict{Symbol,Any}()
 
     for slot in cls.meta.slots
