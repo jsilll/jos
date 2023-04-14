@@ -569,7 +569,7 @@ end
 end
 
 @testset "2.17 Multiple Meta-Class Inheritance" begin
-    # -- Test MMCI --
+    # -- Test MMCI with Undoable Collision Avoiding Counting Class --
     @test_throws ErrorException AnotherNamedThing =
         _new_class(:AnotherNamedThing, [:name], [NamedThing], UndoableCollisionAvoidingCountingClass)
 

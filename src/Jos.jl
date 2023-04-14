@@ -36,14 +36,6 @@ end
 
 export MClass, MInstance, MMultiMethod, MGenericFunction
 
-# ---- Internal Base Class Constructor ----
-
-function _new_base_class(
-    name::Symbol, slots::Vector{Symbol}, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})
-    MClass(name, MClass[], slots, Dict{Symbol,Any}(), nothing, direct_slots, Dict{Symbol,Any}(),
-        Dict{Symbol,Function}(), Dict{Symbol,Function}(), direct_superclasses)
-end
-
 # ---- Class Getter and Setter ----
 
 function Base.getproperty(cls::MClass, name::Symbol)
@@ -73,8 +65,7 @@ end
 # ---- Instance Getter and Setter ----
 
 function Base.getproperty(obj::MInstance, slot::Symbol)
-    slots = Base.getfield(obj, :slots)
-    if haskey(slots, slot)
+    if haskey(Base.getfield(obj, :slots), slot)
         class_of(obj).getters[slot](obj)
     else
         error("Invalid slot name: $slot")
@@ -82,21 +73,28 @@ function Base.getproperty(obj::MInstance, slot::Symbol)
 end
 
 function Base.setproperty!(obj::MInstance, slot::Symbol, value)
-    slots = Base.getfield(obj, :slots)
-    if haskey(slots, slot)
+    if haskey(Base.getfield(obj, :slots), slot)
         class_of(obj).setters[slot](obj, value)
     else
         error("Invalid slot name: $slot")
     end
 end
 
+# ---- Internal Base Class Constructor ----
+
+function _new_base_class(
+    name::Symbol, slots::Vector{Symbol}, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})
+    MClass(name, MClass[], slots, Dict{Symbol,Any}(), nothing, direct_slots, Dict{Symbol,Any}(),
+        Dict{Symbol,Function}(), Dict{Symbol,Function}(), direct_superclasses)
+end
+
 # ---- Bootstrapping Initial Base Classes ----
 
 const Top = _new_base_class(:Top, Symbol[], Symbol[], MClass[])
 
-const Object = _new_base_class(:Object, Symbol[], Symbol[], MClass[Top])
+const Object = _new_base_class(:Object, Symbol[], Symbol[], [Top])
 
-const Class = _new_base_class(:Class, collect(fieldnames(MClass)), collect(fieldnames(MClass)), MClass[Object])
+const Class = _new_base_class(:Class, collect(fieldnames(MClass)), collect(fieldnames(MClass)), [Object])
 
 Top.meta = Class
 Top.cpl = MClass[Top]
@@ -194,19 +192,19 @@ end
 
 # ---- Remaining Classes ----
 
-const BuiltInClass = _new_default_class(:BuiltInClass, Symbol[], MClass[Class])
+const BuiltInClass = _new_default_class(:BuiltInClass, Symbol[], [Class])
 
-const MultiMethod = _new_default_class(:MultiMethod, collect(fieldnames(MMultiMethod)), MClass[Object])
+const MultiMethod = _new_default_class(:MultiMethod, collect(fieldnames(MMultiMethod)), [Object])
 
-const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(MGenericFunction)), MClass[Object])
+const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(MGenericFunction)), [Object])
 
 export BuiltInClass, MultiMethod, GenericFunction
 
 # ---- Built-in Classes ---
 
-const _Int64 = _new_default_class(:_Int64, Symbol[], MClass[Top], BuiltInClass)
+const _Int64 = _new_default_class(:_Int64, Symbol[], [Top], BuiltInClass)
 
-const _String = _new_default_class(:_String, Symbol[], MClass[Top], BuiltInClass)
+const _String = _new_default_class(:_String, Symbol[], [Top], BuiltInClass)
 
 export _Int64, _String
 
@@ -533,33 +531,33 @@ export allocate_instance, initialize, new
 
 @defmethod print_object(obj::Object, io) =
     print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>")
+    
+@defmethod print_object(cls::Class, io) =
+    print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>")
+
+@defmethod print_object(mm::MultiMethod, io) =
+    print(io, "<MultiMethod $(mm.generic_function.name)($(join([specializer.name for specializer in mm.specializers], ", ")))>")
+
+@defmethod print_object(gf::GenericFunction, io) =
+    print(io, "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>")
+
+export print_object
 
 function Base.show(io::IO, obj::MInstance)
     print_object(obj, io)
 end
 
-@defmethod print_object(cls::Class, io) =
-    print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>")
-
 function Base.show(io::IO, cls::MClass)
     print_object(cls, io)
 end
-
-@defmethod print_object(mm::MultiMethod, io) =
-    print(io, "<MultiMethod $(mm.generic_function.name)($(join([specializer.name for specializer in mm.specializers], ", ")))>")
 
 function Base.show(io::IO, mm::MMultiMethod)
     print_object(mm, io)
 end
 
-@defmethod print_object(gf::GenericFunction, io) =
-    print(io, "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>")
-
 function Base.show(io::IO, gf::MGenericFunction)
     print_object(gf, io)
 end
-
-export print_object
 
 # ---- Define Class Macro ----
 
