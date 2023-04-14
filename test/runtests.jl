@@ -609,5 +609,3 @@ end
 
     @test AnotherPerson.counter == 3
 end
-
-@testset "2.18 Extensions" begin end

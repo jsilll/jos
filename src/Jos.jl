@@ -286,6 +286,13 @@ export generic_methods
 
 function _add_method(gf::MGenericFunction, specializers::Vector{MClass}, f::Function)::Nothing
     mm = MMultiMethod(f, specializers, gf)
+
+    for method in gf.methods
+        if method.specializers == specializers
+            method.f = f
+        end
+    end
+
     push!(gf.methods, mm)
     nothing
 end
