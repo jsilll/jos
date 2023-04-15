@@ -15,7 +15,7 @@ mutable struct JClass
     direct_superclasses::Vector{JClass}
 end
 
-struct JObject
+struct JInstance
     class::JClass
     slots::Dict{Symbol,Any}
 end
@@ -34,7 +34,7 @@ struct JGenericFunction <: JGenericFunctionAbstract
     methods::Vector{JMultiMethod}
 end
 
-export JClass, JObject, JMultiMethod, JGenericFunction
+export JClass, JInstance, JMultiMethod, JGenericFunction
 
 # ---- Class Getter and Setter ----
 
@@ -64,7 +64,7 @@ end
 
 # ---- Instance Getter and Setter ----
 
-function Base.getproperty(obj::JObject, slot::Symbol)
+function Base.getproperty(obj::JInstance, slot::Symbol)
     if haskey(Base.getfield(obj, :slots), slot)
         class_of(obj).getters[slot](obj)
     else
@@ -72,7 +72,7 @@ function Base.getproperty(obj::JObject, slot::Symbol)
     end
 end
 
-function Base.setproperty!(obj::JObject, slot::Symbol, value)
+function Base.setproperty!(obj::JInstance, slot::Symbol, value)
     if haskey(Base.getfield(obj, :slots), slot)
         class_of(obj).setters[slot](obj, value)
     else
@@ -105,13 +105,13 @@ const Object = _new_base_class(:Object, Symbol[], [Top])
 const Class = _new_base_class(:Class, collect(fieldnames(JClass)), [Object])
 
 Top.meta = Class
-Top.cpl = JClass[Top]
+Top.cpl = [Top]
 
 Object.meta = Class
-Object.cpl = JClass[Object, Top]
+Object.cpl = [Object, Top]
 
 Class.meta = Class
-Class.cpl = JClass[Class, Object, Top]
+Class.cpl = [Class, Object, Top]
 
 export Top, Object, Class
 
@@ -242,7 +242,7 @@ function class_of(cls::JClass)::JClass
     cls.meta
 end
 
-function class_of(obj::JObject)::JClass
+function class_of(obj::JInstance)::JClass
     Base.getfield(obj, :class)
 end
 
@@ -478,7 +478,7 @@ export compute_getter_and_setter
             Dict{Symbol,Function},
             [Object])
     else
-        JObject(cls, Dict())
+        JInstance(cls, Dict())
     end
 end
 
@@ -575,7 +575,7 @@ function Base.show(io::IO, cls::JClass)
     print_object(cls, io)
 end
 
-function Base.show(io::IO, obj::JObject)
+function Base.show(io::IO, obj::JInstance)
     print_object(obj, io)
 end
 
@@ -670,7 +670,7 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
         $global_expr
 
         function $(classname)(args...)
-            instance = JObject($(classname), Dict{Symbol,Any}())
+            instance = JInstance($(classname), Dict{Symbol,Any}())
             for (k, v) in zip(slots, args)
                 instance.slots[k] = v
             end
