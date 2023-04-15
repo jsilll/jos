@@ -42,7 +42,7 @@ const Line = _new_class(:Line, [:from, :to], [Shape])
 
 const Circle = _new_class(:Circle, [:center, :radius], [Shape])
 
-const Device = _new_class(:Device, Symbol[:color], [Object])
+const Device = _new_class(:Device, Symbol[], [Object])
 
 const Screen = _new_class(:Screen, Symbol[], [Device])
 
@@ -59,6 +59,8 @@ const Printer = _new_class(:Printer, Symbol[], [Device])
 # ---- Mixins Example ----
 
 const ColorMixin = _new_class(:ColorMixin, [:color], [Object])
+
+const ColoredPrinter = _new_class(:ColoredPrinter, Symbol[], [ColorMixin, Printer])
 
 const ColoredLine = _new_class(:ColoredLine, Symbol[], [ColorMixin, Line])
 
@@ -153,7 +155,8 @@ const Person = _new_class(:Person, [:name, :age, :friend], [Object], UndoableCla
 const FlavorsClass = _new_class(:FlavorsClass, Symbol[], [Class])
 
 @defmethod compute_cpl(cls::FlavorsClass) =
-    let depth_first_cpl(class) = [class, foldl(vcat, map(depth_first_cpl, class_direct_superclasses(class)), init=[])...],
+    let depth_first_cpl(class) =
+            [class, foldl(vcat, map(depth_first_cpl, class_direct_superclasses(class)), init=[])...],
         base_cpl = [Object, Top]
 
         vcat(unique(filter(!in(base_cpl), depth_first_cpl(cls))), base_cpl)
@@ -287,22 +290,18 @@ const AnotherPerson = _new_class(:AnotherPerson, [:age, :friend], [NamedThing], 
     @test get_print_object_output(_String) == "<BuiltInClass _String>"
 end
 
-@testset "2.2 Objects" begin
-    # -- Test new with Too Many Arguments --
-    @test_throws ErrorException new(ComplexNumber, real=1, imag=2, wrong=3)
-
-    # -- Test new with Too Few Arguments --
-    @test_throws ErrorException new(ComplexNumber, real=1)
-
+@testset "2.2 Instances" begin
     # -- Test new with Invalid Slot Name --
     @test_throws ErrorException new(ComplexNumber, real=1, wrong=3)
 
-    # -- Test new with Missing Not Defaulted Slot --
+    # -- Test new with Too Many Arguments --
+    @test_throws ErrorException new(ComplexNumber, real=1, imag=2, wrong=3)
+
+    # -- Test new with Defaulted Slot --
     ComplexNumberDefaulted = _new_class(:ComplexNumberDefaulted, Symbol[], [ComplexNumber])
     ComplexNumberDefaulted.defaulted = Dict{Symbol,Any}(:real => 0)
 
     @test new(ComplexNumberDefaulted, imag=2).real === 0
-    @test_throws ErrorException new(ComplexNumberDefaulted, real=1)
 end
 
 @testset "2.3 Slot Access" begin
@@ -328,7 +327,13 @@ end
 @testset "2.4 Generic Functions and Methods" begin
     # -- Test add --
     @test add(1, 2) === 3
+
     @test add("Hello ", "World!") === "Hello World!"
+
+    res = add(c1, c2)
+    @test class_of(res) === ComplexNumber
+    @test res.real === 4
+    @test res.imag === 6
 end
 
 @testset "2.5 Pre-defined Generic Functions and Methods" begin
@@ -360,9 +365,15 @@ end
     @test class_of(print_object.methods[1]) === MultiMethod
 
     @test class_of(c1) === ComplexNumber
+    @test class_of(class_of(c1)) === Class
+    @test class_of(class_of(class_of(c1))) === Class
 
     @test class_of(1) === _Int64
     @test class_of("Jos") === _String
+
+    @test ComplexNumber.name == :ComplexNumber
+    @test ComplexNumber.direct_superclasses == [Object]
+    @test Class.slots == collect(fieldnames(MClass))
 
     # -- Test ComplexNumber --
     @test ComplexNumber.name === :ComplexNumber
@@ -387,57 +398,61 @@ end
 
     @test get_print_object_output(add) == "<GenericFunction add with 3 methods>"
     @test get_print_object_output(add.methods[1]) == "<MultiMethod add(_Int64, _Int64)>"
+    @test get_print_object_output(add.methods[2]) == "<MultiMethod add(_String, _String)>"
+    @test get_print_object_output(add.methods[3]) == "<MultiMethod add(ComplexNumber, ComplexNumber)>"
+
+    @test MultiMethod.slots == collect(fieldnames(MMultiMethod))
+    @test GenericFunction.slots == collect(fieldnames(MGenericFunction))
 end
 
 @testset "2.7 Class Options" begin
-    # TODO: @defclass with options
-    # @defclass(ComplexNumber, [], [real, imag])
+    # -- Test Class Options --
     @test get_print_object_output(ComplexNumber) == "<Class ComplexNumber>"
+
+    @test get_print_object_output(Person) == "<UndoableClass Person>"
+    @test get_print_object_output(class_of(Person)) == "<Class UndoableClass>"
+    @test get_print_object_output(class_of(class_of(Person))) == "<Class Class>"
+
+    # Missing: @defclass stuff
 end
 
 @testset "2.8 Readers and Writers" begin
-    # TODO: @defclass using @defmethod for getters and setters
+    # Missing: @defclass stuff
 end
 
 @testset "2.9 Generic Function Calls" begin
+    # -- Test call_next_method --
+    @defmethod foo(x) = "Top"
+    @defmethod foo(x::_Int64) = ["_Int64", call_next_method()]
+    @test foo(1) == ["_Int64", "Top"]
+
     # -- Test no_applicable_method --
     @test_throws ErrorException add(1, "Hello")
     @test_throws ErrorException add("Hello", 1)
-
-    # -- Test call_next_method --
-    @defmethod foo(x) = "Top"
-
-    @defmethod foo(x::_Int64) = ["_Int64", call_next_method()]
-
-    @test foo(1) == ["_Int64", "Top"]
 end
 
 @testset "2.10 Multiple Dispatch" begin
     # -- Test with Shapes and Devices Example --
-    expected = [["Drawing a Line on a Printer",
-            "Drawing a Circle on a Printer"],
-        ["Drawing a Line on a Screen",
-            "Drawing a Circle on a Screen"]]
+    expected = [["Drawing a Line on a Printer", "Drawing a Circle on a Printer"],
+        ["Drawing a Line on a Screen", "Drawing a Circle on a Screen"]]
 
-    devices = [new(Printer, color=:black), new(Screen, color=:black)]
-
+    devices = [new(Printer), new(Screen)]
     shapes = [new(Line, from=1, to=2), new(Circle, center=1, radius=2)]
 
     for (device, expect) in zip(devices, expected)
-        for (shape, exp) in zip(shapes, expect)
-            @test draw(shape, device) == exp
+        for (shape, e) in zip(shapes, expect)
+            @test draw(shape, device) == e
         end
     end
 end
 
 @testset "2.11 Multiple Inheritance" begin
-    # -- Test Mixins with extension of the Shapes and Devices Example --
+    # -- Test Multiple Inheritance with ColorMixin example --
     expected = [[:black, "Drawing a Line on a Printer", :black],
         [:red, "Drawing a Circle on a Printer", :black],
         [:blue, "Drawing a Line on a Printer", :black]]
 
-    printer = new(Printer, color=:black)
-
+    printer = new(ColoredPrinter, color=:black)
     shapes = [new(ColoredLine, from=1, to=2, color=:black),
         new(ColoredCircle, center=1, radius=2, color=:red),
         new(ColoredLine, from=1, to=2, color=:blue)]
@@ -450,22 +465,19 @@ end
 @testset "2.12 Class Hierarchy" begin
     # -- Test that Class Hierarchy is finite --
     @test ColoredCircle.direct_superclasses == [ColorMixin, Circle]
-
     @test ColorMixin.direct_superclasses == [Object]
-
     @test Object.direct_superclasses == [Top]
-
     @test Top.direct_superclasses == []
 end
 
 @testset "2.13 Class Precedence List" begin
     # -- Test Class Precedence List --
-    A = _new_class(:A, Symbol[], MClass[Object])
-    B = _new_class(:B, Symbol[], MClass[Object])
-    C = _new_class(:C, Symbol[], MClass[Object])
-    D = _new_class(:D, Symbol[], MClass[A, B])
-    E = _new_class(:E, Symbol[], MClass[A, C])
-    F = _new_class(:F, Symbol[], MClass[D, E])
+    A = _new_class(:A, Symbol[], [Object])
+    B = _new_class(:B, Symbol[], [Object])
+    C = _new_class(:C, Symbol[], [Object])
+    D = _new_class(:D, Symbol[], [A, B])
+    E = _new_class(:E, Symbol[], [A, C])
+    F = _new_class(:F, Symbol[], [D, E])
 
     @test compute_cpl(F) == [F, D, E, A, B, C, Object, Top]
 end
@@ -473,15 +485,11 @@ end
 @testset "2.14 Built-In Classes" begin
     # -- Test Built-In Classes --
     @test class_of(1) == _Int64
-
     @test class_of("a") == _String
-
     @test class_of(_Int64) == BuiltInClass
-
     @test class_of(_String) == BuiltInClass
 
     @test add(1, 2) == 3
-
     @test add("Hello ", "World!") == "Hello World!"
 end
 
@@ -497,7 +505,7 @@ end
 
     @test length(generic_methods(draw)) == 5
 
-    @test length(method_specializers(generic_methods(draw)[1])) == 2
+    @test method_specializers(generic_methods(draw)[5]) == [ColorMixin, Device]
 end
 
 @testset "2.16.1 Class Instantiation Protocol" begin
@@ -516,13 +524,13 @@ end
     # -- Test CSP with Collision AvoidCollisionClass --
     @test class_slots(FooBar) == [:a, :d, :a, :b, :b, :c]
 
-    @test_throws ErrorException _new_class(:CAFooBar, [:a, :d], [Foo, Bar], AvoidCollisionClass)
+    @test_throws ErrorException _new_class(:FooBar, [:a, :d], [Foo, Bar], AvoidCollisionClass)
 end
 
 @testset "2.16.3 Slot Access Protocol" begin
     # -- Test SAP with Slot Access Class --
-    p0 = new(Person, name="John", age=21, friend=missing)
-    p1 = new(Person, name="Paul", age=23, friend=missing)
+    p0 = new(Person, name="John", age=21)
+    p1 = new(Person, name="Paul", age=23)
 
     # Paul has a friend name John    
     p1.friend = p0
@@ -532,7 +540,7 @@ end
     p0.age = 53
     p1.age = 55
     p0.name = "Louis"
-    p0.friend = new(Person, name="Mary", age=19, friend=missing)
+    p0.friend = new(Person, name="Mary", age=19)
     state1 = current_state()
 
     # 15 years later, John (hum, I mean 'Louis') died
@@ -570,11 +578,12 @@ end
 
 @testset "2.17 Multiple Meta-Class Inheritance" begin
     # -- Test MMCI with Undoable Collision Avoiding Counting Class --
-    @test_throws ErrorException AnotherNamedThing =
-        _new_class(:AnotherNamedThing, [:name], [NamedThing], UndoableCollisionAvoidingCountingClass)
+    @test_throws ErrorException _new_class(:AnotherPerson, [:name], [NamedThing], UndoableCollisionAvoidingCountingClass)
 
-    p0 = new(AnotherPerson, name="John", age=21, friend=missing)
-    p1 = new(AnotherPerson, name="Paul", age=23, friend=missing)
+    p0 = new(AnotherPerson, name="John", age=21)
+    p1 = new(AnotherPerson, name="Paul", age=23)
+
+    @test get_print_object_output(class_of(p0)) == "<UndoableCollisionAvoidingCountingClass AnotherPerson>"
 
     # Paul has a friend name John    
     p1.friend = p0

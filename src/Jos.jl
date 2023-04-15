@@ -82,19 +82,27 @@ end
 
 # ---- Internal Base Class Constructor ----
 
-function _new_base_class(
-    name::Symbol, slots::Vector{Symbol}, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass})
-    MClass(name, MClass[], slots, Dict{Symbol,Any}(), nothing, direct_slots, Dict{Symbol,Any}(),
-        Dict{Symbol,Function}(), Dict{Symbol,Function}(), direct_superclasses)
+function _new_base_class(name::Symbol, slots::Vector{Symbol},
+    direct_superclasses::Vector{MClass})::MClass
+    MClass(name,
+        MClass[],
+        slots,
+        Dict{Symbol,Any}(),
+        nothing,
+        slots,
+        Dict{Symbol,Any}(),
+        Dict{Symbol,Function}(),
+        Dict{Symbol,Function}(),
+        direct_superclasses)
 end
 
 # ---- Bootstrapping Initial Base Classes ----
 
-const Top = _new_base_class(:Top, Symbol[], Symbol[], MClass[])
+const Top = _new_base_class(:Top, Symbol[], MClass[])
 
-const Object = _new_base_class(:Object, Symbol[], Symbol[], [Top])
+const Object = _new_base_class(:Object, Symbol[], [Top])
 
-const Class = _new_base_class(:Class, collect(fieldnames(MClass)), collect(fieldnames(MClass)), [Object])
+const Class = _new_base_class(:Class, collect(fieldnames(MClass)), [Object])
 
 Top.meta = Class
 Top.cpl = MClass[Top]
@@ -137,7 +145,10 @@ end
 # ---- Internal Compute Class Defaulted Slots ----
 
 function _compute_defaulted(cls::MClass)::Dict{Symbol,Any}
-    Dict{Symbol,Any}([slot => value for superclass in reverse(cls.cpl) for (slot, value) in superclass.defaulted])
+    Dict{Symbol,Any}(
+        [slot => value
+         for superclass in reverse(cls.cpl)
+         for (slot, value) in superclass.defaulted])
 end
 
 # ---- Internal Compute Meta Slots ----
@@ -162,20 +173,26 @@ end
 
 # ---- Internal Compute Class Getter and Setter ----
 
-function _compute_getter(slot::Symbol)::Function
-    (obj) -> Base.getfield(obj, :slots)[slot]
-end
-
-function _compute_setter(slot::Symbol)::Function
-    (obj, value) -> Base.getfield(obj, :slots)[slot] = value
+function _compute_getter_and_setter(slot::Symbol)::Tuple{Function,Function}
+    ((obj) -> Base.getfield(obj, :slots)[slot],
+        (obj, value) -> Base.getfield(obj, :slots)[slot] = value)
 end
 
 # ---- Internal Default Class Constructor ----
 
 function _new_default_class(name::Symbol, direct_slots::Vector{Symbol},
     direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
-    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots,
-        Dict{Symbol,Any}(), Dict{Symbol,Function}(), Dict{Symbol,Function}(), direct_superclasses)
+
+    cls = MClass(name,
+        MClass[],
+        Symbol[],
+        Dict{Symbol,Any}(),
+        meta,
+        direct_slots,
+        Dict{Symbol,Any}(),
+        Dict{Symbol,Function}(),
+        Dict{Symbol,Function}(),
+        direct_superclasses)
 
     cls.cpl = _compute_cpl(cls)
     cls.slots = _compute_slots(cls)
@@ -183,8 +200,7 @@ function _new_default_class(name::Symbol, direct_slots::Vector{Symbol},
     cls.meta_slots = _compute_meta_slots(cls)
 
     for slot in cls.slots
-        cls.getters[slot] = _compute_getter(slot)
-        cls.setters[slot] = _compute_setter(slot)
+        cls.getters[slot], cls.setters[slot] = _compute_getter_and_setter(slot)
     end
 
     cls
@@ -282,7 +298,8 @@ export generic_methods
 
 # ---- Internal Add Method ----
 
-function _add_method(gf::MGenericFunction, specializers::Vector{MClass}, f::Function)::Nothing
+function _add_method(gf::MGenericFunction,
+    specializers::Vector{MClass}, f::Function)::Nothing
     mm = MMultiMethod(f, specializers, gf)
 
     for method in gf.methods
@@ -436,8 +453,7 @@ export compute_slots
 
 # ---- Compute Getters and Setters Protocol ----
 
-@defmethod compute_getter_and_setter(_::Class, slot, idx) =
-    (_compute_getter(slot), _compute_setter(slot))
+@defmethod compute_getter_and_setter(cls::Class, slot, idx) = _compute_getter_and_setter(slot)
 
 export compute_getter_and_setter
 
@@ -451,12 +467,22 @@ export compute_getter_and_setter
     elseif cls === MultiMethod
         MMultiMethod((call_next_method) -> nothing, MClass[], nothing)
     elseif cls === Class
-        MClass(:Class, MClass[], Symbol[], Dict{Symbol,Any}(), Class, Symbol[],
-            Dict{Symbol,Any}(), Dict{Symbol,Function}, Dict{Symbol,Function}, [Object])
+        MClass(:Class,
+            MClass[],
+            Symbol[],
+            Dict{Symbol,Any}(),
+            Class,
+            Symbol[],
+            Dict{Symbol,Any}(),
+            Dict{Symbol,Function},
+            Dict{Symbol,Function},
+            [Object])
     else
         MInstance(cls, Dict())
     end
 end
+
+@defgeneric allocate_instance(instance, initargs)
 
 @defmethod initialize(gf::GenericFunction, initargs) = begin
     for (k, v) in initargs
@@ -479,10 +505,6 @@ end
 end
 
 @defmethod initialize(cls::Class, initargs) = begin
-    for (k, v) in initargs
-        Base.setproperty!(cls, k, v)
-    end
-
     cls.cpl = compute_cpl(cls)
     cls.slots = compute_slots(cls)
     cls.defaulted = _compute_defaulted(cls)
@@ -490,6 +512,14 @@ end
 
     for (slot, idx) in enumerate(cls.slots)
         cls.getters[slot], cls.setters[slot] = compute_getter_and_setter(cls, slot, idx)
+    end
+
+    for (k, v) in initargs
+        if !(k in Class.slots)
+            error("Invalid slot name: $k")
+        else
+            Base.setproperty!(cls, k, v)
+        end
     end
 end
 
@@ -508,7 +538,7 @@ end
 
     for slot in class_of(obj).slots
         if !haskey(slots, slot)
-            error("Slot '$slot' not filled.")
+            slots[slot] = missing
         end
     end
 end
@@ -516,8 +546,6 @@ end
 function new(cls::MClass; kwargs...)
     if length(kwargs) > length(cls.slots)
         error("Too many arguments")
-    elseif length(kwargs) < (length(cls.slots) - length(cls.defaulted))
-        error("Too few arguments")
     else
         instance = allocate_instance(cls)
         initialize(instance, kwargs)
@@ -529,11 +557,13 @@ export allocate_instance, initialize, new
 
 # ---- print-object Generic Function and respective Base.show specializations ----
 
-@defmethod print_object(obj::Object, io) =
-    print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>")
-    
+@defgeneric print_object(obj, io)
+
 @defmethod print_object(cls::Class, io) =
     print(io, "<$(class_name(class_of(cls))) $(class_name(cls))>")
+
+@defmethod print_object(obj::Object, io) =
+    print(io, "<$(class_name(class_of(obj))) $(string(objectid(obj), base=62))>")
 
 @defmethod print_object(mm::MultiMethod, io) =
     print(io, "<MultiMethod $(mm.generic_function.name)($(join([specializer.name for specializer in mm.specializers], ", ")))>")
@@ -541,14 +571,12 @@ export allocate_instance, initialize, new
 @defmethod print_object(gf::GenericFunction, io) =
     print(io, "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>")
 
-export print_object
+function Base.show(io::IO, cls::MClass)
+    print_object(cls, io)
+end
 
 function Base.show(io::IO, obj::MInstance)
     print_object(obj, io)
-end
-
-function Base.show(io::IO, cls::MClass)
-    print_object(cls, io)
 end
 
 function Base.show(io::IO, mm::MMultiMethod)
@@ -559,11 +587,22 @@ function Base.show(io::IO, gf::MGenericFunction)
     print_object(gf, io)
 end
 
+export print_object
+
 # ---- Define Class Macro ----
 
-function _new_class(name::Symbol, direct_slots::Vector{Symbol}, direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
-    cls = MClass(name, MClass[], Symbol[], Dict{Symbol,Any}(), meta, direct_slots, Dict{Symbol,Any}(),
-        Dict{Symbol,Function}(), Dict{Symbol,Function}(), direct_superclasses)
+function _new_class(name::Symbol, direct_slots::Vector{Symbol},
+    direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
+    cls = MClass(name,
+        MClass[],
+        Symbol[],
+        Dict{Symbol,Any}(),
+        meta,
+        direct_slots,
+        Dict{Symbol,Any}(),
+        Dict{Symbol,Function}(),
+        Dict{Symbol,Function}(),
+        direct_superclasses)
 
     cls.cpl = compute_cpl(cls)
     cls.slots = compute_slots(cls)
