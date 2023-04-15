@@ -11,5 +11,6 @@ Alternatively, you can open the `pkg` prompt using '`]`' and run the tests from 
 
 ```julia
 julia> ]
-pkg> test Jos
+pkg> activate .
+(Jos) pkg> test
 ```
