@@ -211,8 +211,8 @@ const AnotherPerson = _new_class(:AnotherPerson, [:age, :friend], [NamedThing], 
     @test Class.cpl == [Class, Object, Top]
     @test Class.direct_superclasses == [Object]
 
-    @test Class.slots == collect(fieldnames(MClass))
-    @test Class.direct_slots == collect(fieldnames(MClass))
+    @test Class.slots == collect(fieldnames(JClass))
+    @test Class.direct_slots == collect(fieldnames(JClass))
 
     @test Class.defaulted == Dict{Symbol,Any}()
 
@@ -225,8 +225,8 @@ const AnotherPerson = _new_class(:AnotherPerson, [:age, :friend], [NamedThing], 
     @test MultiMethod.cpl == [MultiMethod, Object, Top]
     @test MultiMethod.direct_superclasses == [Object]
 
-    @test MultiMethod.slots == collect(fieldnames(MMultiMethod))
-    @test MultiMethod.direct_slots == collect(fieldnames(MMultiMethod))
+    @test MultiMethod.slots == collect(fieldnames(JMultiMethod))
+    @test MultiMethod.direct_slots == collect(fieldnames(JMultiMethod))
 
     @test MultiMethod.defaulted == Dict{Symbol,Any}()
 
@@ -239,8 +239,8 @@ const AnotherPerson = _new_class(:AnotherPerson, [:age, :friend], [NamedThing], 
     @test GenericFunction.cpl == [GenericFunction, Object, Top]
     @test GenericFunction.direct_superclasses == [Object]
 
-    @test GenericFunction.slots == collect(fieldnames(MGenericFunction))
-    @test GenericFunction.direct_slots == collect(fieldnames(MGenericFunction))
+    @test GenericFunction.slots == collect(fieldnames(JGenericFunction))
+    @test GenericFunction.direct_slots == collect(fieldnames(JGenericFunction))
 
     @test GenericFunction.defaulted == Dict{Symbol,Any}()
 
@@ -253,7 +253,7 @@ const AnotherPerson = _new_class(:AnotherPerson, [:age, :friend], [NamedThing], 
     @test BuiltInClass.cpl == [BuiltInClass, Class, Object, Top]
     @test BuiltInClass.direct_superclasses == [Class]
 
-    @test BuiltInClass.slots == collect(fieldnames(MClass))
+    @test BuiltInClass.slots == collect(fieldnames(JClass))
     @test BuiltInClass.direct_slots == []
 
     @test BuiltInClass.defaulted == Dict{Symbol,Any}()
@@ -373,7 +373,7 @@ end
 
     @test ComplexNumber.name == :ComplexNumber
     @test ComplexNumber.direct_superclasses == [Object]
-    @test Class.slots == collect(fieldnames(MClass))
+    @test Class.slots == collect(fieldnames(JClass))
 
     # -- Test ComplexNumber --
     @test ComplexNumber.name === :ComplexNumber
@@ -401,8 +401,8 @@ end
     @test get_print_object_output(add.methods[2]) == "<MultiMethod add(_String, _String)>"
     @test get_print_object_output(add.methods[3]) == "<MultiMethod add(ComplexNumber, ComplexNumber)>"
 
-    @test MultiMethod.slots == collect(fieldnames(MMultiMethod))
-    @test GenericFunction.slots == collect(fieldnames(MGenericFunction))
+    @test MultiMethod.slots == collect(fieldnames(JMultiMethod))
+    @test GenericFunction.slots == collect(fieldnames(JGenericFunction))
 end
 
 @testset "2.7 Class Options" begin

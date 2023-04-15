@@ -1,12 +1,12 @@
 using Test, Jos
 
-# ---- Implementing CLOS' strategy for computing the Class Precedence List ----
+# ---- Implementing CLOS-like strategy for computing the Class Precedence List ----
 
-function _compute_clos_cpl(cls::MClass) 
-    L = MClass[]
-    S = Set{MClass}()
+function _compute_clos_cpl(cls::JClass) 
+    L = JClass[]
+    S = Set{JClass}()
 
-    function topo(cls::MClass)
+    function topo(cls::JClass)
         for c in cls.direct_superclasses
             if !(c in S)
                 push!(S, c)
@@ -48,9 +48,9 @@ end
 @defmethod compute_meta_slots(cls::Class) = Jos._compute_meta_slots(cls)
 
 function _extended_new_class(name::Symbol, direct_slots::Vector{Symbol},
-    direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
-    cls = MClass(name,
-        MClass[],
+    direct_superclasses::Vector{JClass}, meta::JClass=Class)::JClass
+    cls = JClass(name,
+        JClass[],
         Symbol[],
         Dict{Symbol,Any}(),
         meta,

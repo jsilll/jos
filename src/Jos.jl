@@ -2,43 +2,43 @@ module Jos
 
 # ---- Internal Representation ----
 
-mutable struct MClass
+mutable struct JClass
     name::Symbol
-    cpl::Vector{MClass}
+    cpl::Vector{JClass}
     slots::Vector{Symbol}
     defaulted::Dict{Symbol,Any}
-    meta::Union{Nothing,MClass}
+    meta::Union{Nothing,JClass}
     direct_slots::Vector{Symbol}
     meta_slots::Dict{Symbol,Any}
     getters::Dict{Symbol,Function}
     setters::Dict{Symbol,Function}
-    direct_superclasses::Vector{MClass}
+    direct_superclasses::Vector{JClass}
 end
 
-struct MInstance
-    class::MClass
+struct JObject
+    class::JClass
     slots::Dict{Symbol,Any}
 end
 
-abstract type MGenericFunctionAbstract end
+abstract type JGenericFunctionAbstract end
 
-struct MMultiMethod
+struct JMultiMethod
     procedure::Function
-    specializers::Vector{MClass}
-    generic_function::Union{Nothing,MGenericFunctionAbstract}
+    specializers::Vector{JClass}
+    generic_function::Union{Nothing,JGenericFunctionAbstract}
 end
 
-struct MGenericFunction <: MGenericFunctionAbstract
+struct JGenericFunction <: JGenericFunctionAbstract
     name::Symbol
     params::Vector{Symbol}
-    methods::Vector{MMultiMethod}
+    methods::Vector{JMultiMethod}
 end
 
-export MClass, MInstance, MMultiMethod, MGenericFunction
+export JClass, JObject, JMultiMethod, JGenericFunction
 
 # ---- Class Getter and Setter ----
 
-function Base.getproperty(cls::MClass, name::Symbol)
+function Base.getproperty(cls::JClass, name::Symbol)
     try
         Base.getfield(cls, name)
     catch
@@ -50,7 +50,7 @@ function Base.getproperty(cls::MClass, name::Symbol)
     end
 end
 
-function Base.setproperty!(cls::MClass, name::Symbol, value)
+function Base.setproperty!(cls::JClass, name::Symbol, value)
     try
         Base.setfield!(cls, name, value)
     catch
@@ -64,7 +64,7 @@ end
 
 # ---- Instance Getter and Setter ----
 
-function Base.getproperty(obj::MInstance, slot::Symbol)
+function Base.getproperty(obj::JObject, slot::Symbol)
     if haskey(Base.getfield(obj, :slots), slot)
         class_of(obj).getters[slot](obj)
     else
@@ -72,7 +72,7 @@ function Base.getproperty(obj::MInstance, slot::Symbol)
     end
 end
 
-function Base.setproperty!(obj::MInstance, slot::Symbol, value)
+function Base.setproperty!(obj::JObject, slot::Symbol, value)
     if haskey(Base.getfield(obj, :slots), slot)
         class_of(obj).setters[slot](obj, value)
     else
@@ -83,9 +83,9 @@ end
 # ---- Internal Base Class Constructor ----
 
 function _new_base_class(name::Symbol, slots::Vector{Symbol},
-    direct_superclasses::Vector{MClass})::MClass
-    MClass(name,
-        MClass[],
+    direct_superclasses::Vector{JClass})::JClass
+    JClass(name,
+        JClass[],
         slots,
         Dict{Symbol,Any}(),
         nothing,
@@ -98,31 +98,31 @@ end
 
 # ---- Bootstrapping Initial Base Classes ----
 
-const Top = _new_base_class(:Top, Symbol[], MClass[])
+const Top = _new_base_class(:Top, Symbol[], JClass[])
 
 const Object = _new_base_class(:Object, Symbol[], [Top])
 
-const Class = _new_base_class(:Class, collect(fieldnames(MClass)), [Object])
+const Class = _new_base_class(:Class, collect(fieldnames(JClass)), [Object])
 
 Top.meta = Class
-Top.cpl = MClass[Top]
+Top.cpl = JClass[Top]
 
 Object.meta = Class
-Object.cpl = MClass[Object, Top]
+Object.cpl = JClass[Object, Top]
 
 Class.meta = Class
-Class.cpl = MClass[Class, Object, Top]
+Class.cpl = JClass[Class, Object, Top]
 
 export Top, Object, Class
 
 # ---- Internal Compute Class Precedence List ----
 
-function _compute_cpl(cls::MClass)::Vector{MClass}
-    function aux(superclasses::Vector{MClass}, cpl::Vector{MClass})::Vector{MClass}
+function _compute_cpl(cls::JClass)::Vector{JClass}
+    function aux(superclasses::Vector{JClass}, cpl::Vector{JClass})::Vector{JClass}
         if length(superclasses) == 0
             cpl
         else
-            indirect = MClass[]
+            indirect = JClass[]
             for superclass in superclasses
                 if !(superclass in cpl)
                     push!(cpl, superclass)
@@ -138,13 +138,13 @@ end
 
 # ---- Internal Compute Class Slots ----
 
-function _compute_slots(cls::MClass)::Vector{Symbol}
+function _compute_slots(cls::JClass)::Vector{Symbol}
     vcat(map(cls -> cls.direct_slots, cls.cpl)...)
 end
 
 # ---- Internal Compute Class Defaulted Slots ----
 
-function _compute_defaulted(cls::MClass)::Dict{Symbol,Any}
+function _compute_defaulted(cls::JClass)::Dict{Symbol,Any}
     Dict{Symbol,Any}(
         [slot => value
          for superclass in reverse(cls.cpl)
@@ -153,7 +153,7 @@ end
 
 # ---- Internal Compute Meta Slots ----
 
-function _compute_meta_slots(cls::MClass)::Dict{Symbol,Any}
+function _compute_meta_slots(cls::JClass)::Dict{Symbol,Any}
     if cls.meta == Class
         return Dict{Symbol,Any}()
     end
@@ -181,10 +181,10 @@ end
 # ---- Internal Default Class Constructor ----
 
 function _new_default_class(name::Symbol, direct_slots::Vector{Symbol},
-    direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
+    direct_superclasses::Vector{JClass}, meta::JClass=Class)::JClass
 
-    cls = MClass(name,
-        MClass[],
+    cls = JClass(name,
+        JClass[],
         Symbol[],
         Dict{Symbol,Any}(),
         meta,
@@ -210,9 +210,9 @@ end
 
 const BuiltInClass = _new_default_class(:BuiltInClass, Symbol[], [Class])
 
-const MultiMethod = _new_default_class(:MultiMethod, collect(fieldnames(MMultiMethod)), [Object])
+const MultiMethod = _new_default_class(:MultiMethod, collect(fieldnames(JMultiMethod)), [Object])
 
-const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(MGenericFunction)), [Object])
+const GenericFunction = _new_default_class(:GenericFunction, collect(fieldnames(JGenericFunction)), [Object])
 
 export BuiltInClass, MultiMethod, GenericFunction
 
@@ -226,31 +226,31 @@ export _Int64, _String
 
 # ---- Class-Of Non Generic Function ----
 
-function class_of(_)::MClass
+function class_of(_)::JClass
     Top
 end
 
-function class_of(_::Int64)::MClass
+function class_of(_::Int64)::JClass
     _Int64
 end
 
-function class_of(_::String)::MClass
+function class_of(_::String)::JClass
     _String
 end
 
-function class_of(cls::MClass)::MClass
+function class_of(cls::JClass)::JClass
     cls.meta
 end
 
-function class_of(obj::MInstance)::MClass
+function class_of(obj::JObject)::JClass
     Base.getfield(obj, :class)
 end
 
-function class_of(_::MMultiMethod)::MClass
+function class_of(_::JMultiMethod)::JClass
     MultiMethod
 end
 
-function class_of(_::MGenericFunction)::MClass
+function class_of(_::JGenericFunction)::JClass
     GenericFunction
 end
 
@@ -258,23 +258,23 @@ export class_of
 
 # ---- Class-Related Non-Generic Functions ----
 
-function class_name(cls::MClass)::Symbol
+function class_name(cls::JClass)::Symbol
     cls.name
 end
 
-function class_cpl(cls::MClass)::Vector{MClass}
+function class_cpl(cls::JClass)::Vector{JClass}
     cls.cpl
 end
 
-function class_slots(cls::MClass)::Vector{Symbol}
+function class_slots(cls::JClass)::Vector{Symbol}
     cls.slots
 end
 
-function class_direct_slots(cls::MClass)::Vector{Symbol}
+function class_direct_slots(cls::JClass)::Vector{Symbol}
     cls.direct_slots
 end
 
-function class_direct_superclasses(cls::MClass)::Vector{MClass}
+function class_direct_superclasses(cls::JClass)::Vector{JClass}
     cls.direct_superclasses
 end
 
@@ -282,7 +282,7 @@ export class_name, class_cpl, class_slots, class_direct_slots, class_direct_supe
 
 # ---- MultiMethod-Related Non-Generic Functions ----
 
-function method_specializers(mm::MMultiMethod)::Vector{MClass}
+function method_specializers(mm::JMultiMethod)::Vector{JClass}
     mm.specializers
 end
 
@@ -290,7 +290,7 @@ export method_specializers
 
 # ---- GenericFunction-Related Non-Generic Functions ----
 
-function generic_methods(gf::MGenericFunction)::Vector{MMultiMethod}
+function generic_methods(gf::JGenericFunction)::Vector{JMultiMethod}
     gf.methods
 end
 
@@ -298,9 +298,9 @@ export generic_methods
 
 # ---- Internal Add Method ----
 
-function _add_method(gf::MGenericFunction,
-    specializers::Vector{MClass}, f::Function)::Nothing
-    mm = MMultiMethod(f, specializers, gf)
+function _add_method(gf::JGenericFunction,
+    specializers::Vector{JClass}, f::Function)::Nothing
+    mm = JMultiMethod(f, specializers, gf)
 
     for method in gf.methods
         if method.specializers == specializers
@@ -337,7 +337,7 @@ macro defgeneric(form)
             if @isdefined($name)
                 @error("Generic Function '$($name.name)' already defined!")
             else
-                global $name = MGenericFunction($(Expr(:quote, name)), $args, MMultiMethod[])
+                global $name = JGenericFunction($(Expr(:quote, name)), $args, JMultiMethod[])
             end
         end)
     end
@@ -391,7 +391,7 @@ export @defmethod
 @defmethod no_applicable_method(gf::GenericFunction, args) =
     error("No applicable method for function $(gf.name) with arguments ($(join(args, ", ")))")
 
-function specificity(mm::MMultiMethod, args)
+function specificity(mm::JMultiMethod, args)
     res = 0
     for (i, specializer) in enumerate(mm.specializers)
         res = res * 10 + findfirst(x -> x === specializer, class_of(args[i]).cpl)
@@ -399,9 +399,9 @@ function specificity(mm::MMultiMethod, args)
     -res
 end
 
-function (gf::MGenericFunction)(args...)
+function (gf::JGenericFunction)(args...)
     # Getting applicable methods
-    applicable_methods = MMultiMethod[]
+    applicable_methods = JMultiMethod[]
     for method in gf.methods
         is_applicable = true
         for (i, specializer) in enumerate(method.specializers)
@@ -463,12 +463,12 @@ export compute_getter_and_setter
     if cls === Top
         error("Cannot instantiate Top class.")
     elseif cls === GenericFunction
-        MGenericFunction("Null", Symbol[], MMultiMethod[])
+        JGenericFunction("Null", Symbol[], JMultiMethod[])
     elseif cls === MultiMethod
-        MMultiMethod((call_next_method) -> nothing, MClass[], nothing)
+        JMultiMethod((call_next_method) -> nothing, JClass[], nothing)
     elseif cls === Class
-        MClass(:Class,
-            MClass[],
+        JClass(:Class,
+            JClass[],
             Symbol[],
             Dict{Symbol,Any}(),
             Class,
@@ -478,7 +478,7 @@ export compute_getter_and_setter
             Dict{Symbol,Function},
             [Object])
     else
-        MInstance(cls, Dict())
+        JObject(cls, Dict())
     end
 end
 
@@ -543,7 +543,7 @@ end
     end
 end
 
-function new(cls::MClass; kwargs...)
+function new(cls::JClass; kwargs...)
     if length(kwargs) > length(cls.slots)
         error("Too many arguments")
     else
@@ -571,19 +571,19 @@ export allocate_instance, initialize, new
 @defmethod print_object(gf::GenericFunction, io) =
     print(io, "<$(class_name(class_of(gf))) $(gf.name) with $(length(gf.methods)) method$(length(gf.methods) > 1 || length(gf.methods) == 0 ? "s" : "")>")
 
-function Base.show(io::IO, cls::MClass)
+function Base.show(io::IO, cls::JClass)
     print_object(cls, io)
 end
 
-function Base.show(io::IO, obj::MInstance)
+function Base.show(io::IO, obj::JObject)
     print_object(obj, io)
 end
 
-function Base.show(io::IO, mm::MMultiMethod)
+function Base.show(io::IO, mm::JMultiMethod)
     print_object(mm, io)
 end
 
-function Base.show(io::IO, gf::MGenericFunction)
+function Base.show(io::IO, gf::JGenericFunction)
     print_object(gf, io)
 end
 
@@ -592,9 +592,9 @@ export print_object
 # ---- Define Class Macro ----
 
 function _new_class(name::Symbol, direct_slots::Vector{Symbol},
-    direct_superclasses::Vector{MClass}, meta::MClass=Class)::MClass
-    cls = MClass(name,
-        MClass[],
+    direct_superclasses::Vector{JClass}, meta::JClass=Class)::JClass
+    cls = JClass(name,
+        JClass[],
         Symbol[],
         Dict{Symbol,Any}(),
         meta,
@@ -633,7 +633,7 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
     end
 
     cpl_expr = quote
-        cpl = MClass[]
+        cpl = JClass[]
         for superclass in direct_superclasses
             if superclass in cpl
                 continue
@@ -649,7 +649,7 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
     end
 
     cls_expr = quote
-        cls = MClass(name, slots, direct_superclasses)
+        cls = JClass(name, slots, direct_superclasses)
         cls.meta = meta
         cls.cpl = $cpl_expr
         cls.slots = _compute_slots(cls)
@@ -670,7 +670,7 @@ macro defclass(classname, supers=[:Object], slots=Symbol[])
         $global_expr
 
         function $(classname)(args...)
-            instance = MInstance($(classname), Dict{Symbol,Any}())
+            instance = JObject($(classname), Dict{Symbol,Any}())
             for (k, v) in zip(slots, args)
                 instance.slots[k] = v
             end
