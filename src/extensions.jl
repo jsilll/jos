@@ -25,18 +25,18 @@ function _compute_clos_cpl(cls::JClass)
     insert!(L, 1, cls)
 end
 
-const CLOSClass = _new_class(:CLOSClass, Symbol[], [Class])
+@defclass(CLOSClass, [Class], [])
 
 @defmethod compute_cpl(cls::CLOSClass) = _compute_clos_cpl(cls)
 
 @testset "Extensions - CLOS Class Precedence List" begin
     # -- Test that CLOS Class Precedence List -- 
-    A = _new_class(:A, Symbol[], [Object], CLOSClass)
-    B = _new_class(:B, Symbol[], [Object], CLOSClass)
-    C = _new_class(:C, Symbol[], [Object], CLOSClass)
-    D = _new_class(:D, Symbol[], [A, B], CLOSClass)
-    E = _new_class(:E, Symbol[], [A, C], CLOSClass)
-    F = _new_class(:F, Symbol[], [D, E], CLOSClass)
+    @defclass(A, [], [], metaclass=CLOSClass)
+    @defclass(B, [], [], metaclass=CLOSClass)
+    @defclass(C, [], [], metaclass=CLOSClass)
+    @defclass(D, [A, B], [], metaclass=CLOSClass)
+    @defclass(E, [A, C], [], metaclass=CLOSClass)
+    @defclass(F, [D, E], [], metaclass=CLOSClass)
 
     @test compute_cpl(F) == [F, E, C, D, B, A, Object, Top]
 end

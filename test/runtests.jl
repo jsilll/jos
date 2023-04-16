@@ -22,7 +22,7 @@ end
 
 # ---- Complex Numbers Example ----
 
-const ComplexNumber = _new_class(:ComplexNumber, [:real, :imag], [Object])
+@defclass(ComplexNumber, [], [real, imag])
 
 const c1 = new(ComplexNumber, real=1, imag=2)
 
@@ -36,17 +36,17 @@ const c2 = new(ComplexNumber, real=3, imag=4)
 
 # ---- Shapes and Devices Example ----
 
-const Shape = _new_class(:Shape, Symbol[], [Object])
+@defclass(Shape, [], [])
 
-const Line = _new_class(:Line, [:from, :to], [Shape])
+@defclass(Line, [Shape], [from, to])
 
-const Circle = _new_class(:Circle, [:center, :radius], [Shape])
+@defclass(Circle, [Shape], [center, radius])
 
-const Device = _new_class(:Device, Symbol[], [Object])
+@defclass(Device, [], [])
 
-const Screen = _new_class(:Screen, Symbol[], [Device])
+@defclass(Screen, [Device], [])
 
-const Printer = _new_class(:Printer, Symbol[], [Device])
+@defclass(Printer, [Device], [])
 
 @defmethod draw(shape::Line, device::Screen) = "Drawing a Line on a Screen"
 
@@ -58,13 +58,13 @@ const Printer = _new_class(:Printer, Symbol[], [Device])
 
 # ---- Mixins Example ----
 
-const ColorMixin = _new_class(:ColorMixin, [:color], [Object])
+@defclass(ColorMixin, [], [[color, reader=get_color, writer=set_color!]])
 
-const ColoredPrinter = _new_class(:ColoredPrinter, Symbol[], [ColorMixin, Printer])
+@defclass(ColoredPrinter, [Printer], [[ink=:black, reader=get_device_color, writer=_set_device_color!]])
 
-const ColoredLine = _new_class(:ColoredLine, Symbol[], [ColorMixin, Line])
+@defclass(ColoredLine, [ColorMixin, Line], [])
 
-const ColoredCircle = _new_class(:ColoredCircle, Symbol[], [ColorMixin, Circle])
+@defclass(ColoredCircle, [ColorMixin, Circle], [])
 
 @defmethod draw(shape::ColorMixin, device::Device) =
     let previous_color = device.color
@@ -76,12 +76,11 @@ const ColoredCircle = _new_class(:ColoredCircle, Symbol[], [ColorMixin, Circle])
 
 # ---- Counting Class Example ----
 
-const CountingClass = _new_class(:CountingClass, [:counter], [Class])
-CountingClass.defaulted = Dict{Symbol,Any}(:counter => 0)
+@defclass(CountingClass, [Class], [counter=0])
 
-const CountingFoo = _new_class(:CountingFoo, Symbol[], [Object], CountingClass)
+@defclass(CountingFoo, [], [], metaclass=CountingClass)
 
-const CountingBar = _new_class(:CountingBar, Symbol[], [Object], CountingClass)
+@defclass(CountingBar, [], [], metaclass=CountingClass)
 
 @defmethod allocate_instance(class::CountingClass) =
     begin
@@ -91,7 +90,7 @@ const CountingBar = _new_class(:CountingBar, Symbol[], [Object], CountingClass)
 
 # ---- Collision Avoiding Class Example ----
 
-const AvoidCollisionClass = _new_class(:AvoidCollisionClass, Symbol[], [Class])
+@defclass(AvoidCollisionsClass, [Class], [])
 
 @defmethod compute_slots(class::AvoidCollisionClass) =
     let slots = call_next_method()
@@ -101,11 +100,13 @@ const AvoidCollisionClass = _new_class(:AvoidCollisionClass, Symbol[], [Class])
         error("Multiple occurrences of slots: $(join(map(string, duplicates), ", "))")
     end
 
-const Foo = _new_class(:Foo, [:a, :b], [Object])
+@defclass(Foo, [], [a=1, b=2])
 
-const Bar = _new_class(:Bar, [:b, :c], [Object])
+@defclass(Bar, [], [b=3, c=4])
 
-const FooBar = _new_class(:FooBar, [:a, :d], [Foo, Bar])
+@defclass(FooBar, [Foo, Bar], [a=5, d=6])
+
+@defclass(FooBar2, [Foo, Bar], [a=5, d=6], metaclass=AvoidCollisionsClass)
 
 # ---- Undoable Class Example ----
 
@@ -132,7 +133,7 @@ restore(object, slot, values) =
         end
     end
 
-const UndoableClass = _new_class(:UndoableClass, Symbol[], [Class])
+@defclass(UndoableClass, [Class], [])
 
 @defmethod compute_getter_and_setter(cls::UndoableClass, slot, idx) =
     let (getter, setter) = call_next_method()
@@ -145,14 +146,14 @@ const UndoableClass = _new_class(:UndoableClass, Symbol[], [Class])
             end)
     end
 
-const Person = _new_class(:Person, [:name, :age, :friend], [Object], UndoableClass)
+@defclass(Person, [], [name, age, friend], metaclass=UndoableClass)
 
 @defmethod print_object(p::Person, io) =
     print(io, "[$(p.name), $(p.age)$(ismissing(p.friend) ? "" : " with friend $(p.friend)")]")
 
 # ---- Flavors Example ----
 
-const FlavorsClass = _new_class(:FlavorsClass, Symbol[], [Class])
+@defclass(FlavorsClass, [Class], [])
 
 @defmethod compute_cpl(cls::FlavorsClass) =
     let depth_first_cpl(class) =
@@ -164,12 +165,11 @@ const FlavorsClass = _new_class(:FlavorsClass, Symbol[], [Class])
 
 # ---- Multiple Meta-Class Inheritance ----
 
-const UndoableCollisionAvoidingCountingClass =
-    _new_class(:UndoableCollisionAvoidingCountingClass, Symbol[], [UndoableClass, AvoidCollisionClass, CountingClass])
+@defclass(UndoableCollisionAvoidingCountingClass, [UndoableClass, AvoidCollisionsClass, CountingClass], [])
 
-const NamedThing = _new_class(:NamedThing, [:name], [Object])
+@defclass(NamedThing, [], [name])
 
-const AnotherPerson = _new_class(:AnotherPerson, [:age, :friend], [NamedThing], UndoableCollisionAvoidingCountingClass)
+@defclass(AnotherPerson, [NamedThing], [name, age, friend], metaclass=UndoableCollisionAvoidingCountingClass)
 
 @defmethod print_object(p::AnotherPerson, io) =
     print(io, "[$(p.name), $(p.age)$(ismissing(p.friend) ? "" : " with friend $(p.friend)")]")
@@ -298,8 +298,7 @@ end
     @test_throws ErrorException new(ComplexNumber, real=1, imag=2, wrong=3)
 
     # -- Test new with Defaulted Slot --
-    ComplexNumberDefaulted = _new_class(:ComplexNumberDefaulted, Symbol[], [ComplexNumber])
-    ComplexNumberDefaulted.defaulted = Dict{Symbol,Any}(:real => 0)
+    @defclass(ComplexNumberDefaulted, [], [real=0, imag=2])
 
     @test new(ComplexNumberDefaulted, imag=2).real === 0
 end
@@ -472,12 +471,12 @@ end
 
 @testset "2.13 Class Precedence List" begin
     # -- Test Class Precedence List --
-    A = _new_class(:A, Symbol[], [Object])
-    B = _new_class(:B, Symbol[], [Object])
-    C = _new_class(:C, Symbol[], [Object])
-    D = _new_class(:D, Symbol[], [A, B])
-    E = _new_class(:E, Symbol[], [A, C])
-    F = _new_class(:F, Symbol[], [D, E])
+    @defclass(A, [], [])
+    @defclass(B, [], [])
+    @defclass(C, [], [])
+    @defclass(D, [A, B], [])
+    @defclass(E, [A, C], [])
+    @defclass(F, [D, E], [])
 
     @test compute_cpl(F) == [F, D, E, A, B, C, Object, Top]
 end
@@ -524,7 +523,8 @@ end
     # -- Test CSP with Collision AvoidCollisionClass --
     @test class_slots(FooBar) == [:a, :d, :a, :b, :b, :c]
 
-    @test_throws ErrorException _new_class(:FooBar, [:a, :d], [Foo, Bar], AvoidCollisionClass)
+    
+    @test_throws ErrorException @defclass(FooBar, [Foo, Bar], [a, d], metaclass=AvoidCollisionClass)
 end
 
 @testset "2.16.3 Slot Access Protocol" begin
@@ -566,19 +566,19 @@ end
 
 @testset "2.16.4 Class Precedence List Protocol" begin
     # -- Test CPLP with Flavors Example --
-    A = _new_class(:A, Symbol[], [Object], FlavorsClass)
-    B = _new_class(:B, Symbol[], [Object], FlavorsClass)
-    C = _new_class(:C, Symbol[], [Object], FlavorsClass)
-    D = _new_class(:D, Symbol[], [A, B], FlavorsClass)
-    E = _new_class(:E, Symbol[], [A, C], FlavorsClass)
-    F = _new_class(:F, Symbol[], [D, E], FlavorsClass)
+    @defclass(A, [], [], metaclass=FlavorsClass)
+    @defclass(B, [], [], metaclass=FlavorsClass)
+    @defclass(C, [], [], metaclass=FlavorsClass)
+    @defclass(D, [A, B], [], metaclass=FlavorsClass)
+    @defclass(E, [A, C], [], metaclass=FlavorsClass)
+    @defclass(F, [D, E], [], metaclass=FlavorsClass)
 
     @test compute_cpl(F) == [F, D, A, B, E, C, Object, Top]
 end
 
 @testset "2.17 Multiple Meta-Class Inheritance" begin
     # -- Test MMCI with Undoable Collision Avoiding Counting Class --
-    @test_throws ErrorException _new_class(:AnotherPerson, [:name], [NamedThing], UndoableCollisionAvoidingCountingClass)
+    @test_throws ErrorException @defclass(AnotherPerson, [NamedThing], [name], metaclass=UndoableCollisionAvoidingCountingClass)
 
     p0 = new(AnotherPerson, name="John", age=21)
     p1 = new(AnotherPerson, name="Paul", age=23)
