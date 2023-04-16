@@ -597,7 +597,7 @@ function _new_class(name::Symbol, direct_slots::Vector{Symbol}, defaulted::Dict{
     cls = JClass(name,
         JClass[],
         Symbol[],
-        defaulted,
+        Dict{Symbol,Any}(),
         meta,
         direct_slots,
         Dict{Symbol,Any}(),
@@ -614,6 +614,10 @@ function _new_class(name::Symbol, direct_slots::Vector{Symbol}, defaulted::Dict{
         cls.getters[slot], cls.setters[slot] = compute_getter_and_setter(cls, slot, 0)
     end
 
+    for (slot, value) in defaulted
+        cls.defaulted[slot] = value
+    end
+
     cls
 end
 
@@ -627,7 +631,11 @@ function slots_expr_to_dict(expr)
 
         for arg in expr.args
             if arg isa Symbol
-                push!(slots, Dict{Symbol, Any}(:slot_name => arg, :reader => missing, :writer => missing, :initform => missing))
+                push!(slots, Dict{Symbol,Any}(
+                    :slot_name => arg,
+                    :reader => missing,
+                    :writer => missing,
+                    :initform => missing))
             end
         end
 
@@ -640,10 +648,14 @@ function slots_expr_to_dict(expr)
     catch
         slots = Dict[]
     end
-    
+
     # Handle slots with additional options
     function handle_slots(slot)
-        d = Dict{Symbol, Any}(:slot_name => missing, :reader => missing, :writer => missing, :initform => missing)
+        d = Dict{Symbol,Any}(
+            :slot_name => missing,
+            :reader => missing,
+            :writer => missing,
+            :initform => missing)
 
         if slot isa Expr
             head = slot.head
@@ -689,8 +701,9 @@ function slots_expr_to_dict(expr)
 
         return d
     end
-    
-    # Discard the first dict when there are multiple slots because it's empty
+
+    # Discard the first dict when there 
+    # are multiple slots because it's empty
     s = handle_slots(expr)
 
     if !multiple_slots
@@ -710,53 +723,41 @@ macro defclass(form_class, form_supers, form_slots, form_meta=nothing)
         # Parse slots Exprs to a vector of Dicts
         slots_options = slots_expr_to_dict(form_slots)
 
-        println("Slots with options:\n")
-        for s in slots_options
-            println("Slot Start")
-            for (k, v) in s
-                println("$k: $v")
-            end
-            println("Slot End\n")
-        end
-
-
         slots = Symbol[]
         for slot in slots_options
             push!(slots, slot[:slot_name])
         end
 
         supers = form_supers.args
-        
+
         if length(supers) == 0
             push!(supers, :Object)
         end
 
         # Defaulted values
-        defaulted = Dict{Symbol, Any}()
+        defaulted = Dict{Symbol,Any}()
 
         # Add to extra_methods if slots have a reader/writer
         extra_methods = []
         for s in slots_options
             if !ismissing(s[:reader])
-                push!(extra_methods, :( @defmethod $(s[:reader])(o::$class_name) = o.$(s[:slot_name]) ))
+                push!(extra_methods, :(@defmethod $(s[:reader])(o::$class_name) = o.$(s[:slot_name])))
             end
 
             if !ismissing(s[:writer])
-                push!(extra_methods, :( @defmethod $(s[:writer])(o::$class_name, v) = o.$(s[:slot_name]) = v ))            
+                push!(extra_methods, :(@defmethod $(s[:writer])(o::$class_name, v) = o.$(s[:slot_name]) = v))
             end
 
             if !ismissing(s[:initform])
-                push!(defaulted, s[:slot_name] => s[:initform])         
+                push!(defaulted, s[:slot_name] => s[:initform])
             end
         end
-
     catch
         error("Invalid @defclass syntax. Use: @defclass(Name, [Super1, Super2, ...], [Slot1, Slot2, ...])")
     end
 
     # Check if the metaclass is specified
     meta = Class
-
     if !isnothing(form_meta)
         try
             if form_meta.head == :(=)
@@ -768,24 +769,18 @@ macro defclass(form_class, form_supers, form_slots, form_meta=nothing)
             error("Invalid syntax for metaclass! Use: metaclass = <metaclass_name>")
         end
     end
-        
-    esc(
-        quote
-            try
-                Class in $(meta).cpl
-            catch
-                error("Metaclass must be defined and/or a subclass of Class!")
-            end
 
-            try
-                global $class_name = _new_class($(Expr(:quote, class_name)), $slots, $defaulted, JClass[$(supers...)], $meta)    
-                $(extra_methods...)
-
-            catch
-                error("Classes must be defined before they are used as superclasses!")
-            end
+    esc(quote
+        if !(Class in $(meta).cpl)
+            error("Metaclass must be defined and/or a subclass of Class!")
         end
-    )
+        try
+            global $class_name = _new_class($(Expr(:quote, class_name)), $(sort(slots)), $defaulted, JClass[$(supers...)], $meta)
+            $(extra_methods...)
+        catch e
+            error("Error while defining class $class_name: ", e)
+        end
+    end)
 end
 
 export _new_class, @defclass

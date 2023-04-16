@@ -58,9 +58,11 @@ const c2 = new(ComplexNumber, real=3, imag=4)
 
 # ---- Mixins Example ----
 
-@defclass(ColorMixin, [], [[color, reader=get_color, writer=set_color!]])
+@defclass(ColorMixin, [],
+    [[color, reader = get_color, writer = set_color!]])
 
-@defclass(ColoredPrinter, [Printer], [[ink=:black, reader=get_device_color, writer=_set_device_color!]])
+@defclass(ColoredPrinter, [Printer],
+    [[color = :black, reader = get_device_color, writer = set_device_color!]])
 
 @defclass(ColoredLine, [ColorMixin, Line], [])
 
@@ -76,11 +78,11 @@ const c2 = new(ComplexNumber, real=3, imag=4)
 
 # ---- Counting Class Example ----
 
-@defclass(CountingClass, [Class], [counter=0])
+@defclass(CountingClass, [Class], [counter = 0])
 
-@defclass(CountingFoo, [], [], metaclass=CountingClass)
+@defclass(CountingFoo, [], [], metaclass = CountingClass)
 
-@defclass(CountingBar, [], [], metaclass=CountingClass)
+@defclass(CountingBar, [], [], metaclass = CountingClass)
 
 @defmethod allocate_instance(class::CountingClass) =
     begin
@@ -90,7 +92,7 @@ const c2 = new(ComplexNumber, real=3, imag=4)
 
 # ---- Collision Avoiding Class Example ----
 
-@defclass(AvoidCollisionsClass, [Class], [])
+@defclass(AvoidCollisionClass, [Class], [])
 
 @defmethod compute_slots(class::AvoidCollisionClass) =
     let slots = call_next_method()
@@ -100,13 +102,11 @@ const c2 = new(ComplexNumber, real=3, imag=4)
         error("Multiple occurrences of slots: $(join(map(string, duplicates), ", "))")
     end
 
-@defclass(Foo, [], [a=1, b=2])
+@defclass(Foo, [], [a = 1, b = 2])
 
-@defclass(Bar, [], [b=3, c=4])
+@defclass(Bar, [], [b = 3, c = 4])
 
-@defclass(FooBar, [Foo, Bar], [a=5, d=6])
-
-@defclass(FooBar2, [Foo, Bar], [a=5, d=6], metaclass=AvoidCollisionsClass)
+@defclass(FooBar, [Foo, Bar], [a = 5, d = 6])
 
 # ---- Undoable Class Example ----
 
@@ -146,7 +146,7 @@ restore(object, slot, values) =
             end)
     end
 
-@defclass(Person, [], [name, age, friend], metaclass=UndoableClass)
+@defclass(Person, [], [name, age, friend], metaclass = UndoableClass)
 
 @defmethod print_object(p::Person, io) =
     print(io, "[$(p.name), $(p.age)$(ismissing(p.friend) ? "" : " with friend $(p.friend)")]")
@@ -165,11 +165,11 @@ restore(object, slot, values) =
 
 # ---- Multiple Meta-Class Inheritance ----
 
-@defclass(UndoableCollisionAvoidingCountingClass, [UndoableClass, AvoidCollisionsClass, CountingClass], [])
+@defclass(UndoableCollisionAvoidingCountingClass, [UndoableClass, AvoidCollisionClass, CountingClass], [])
 
 @defclass(NamedThing, [], [name])
 
-@defclass(AnotherPerson, [NamedThing], [name, age, friend], metaclass=UndoableCollisionAvoidingCountingClass)
+@defclass(AnotherPerson, [NamedThing], [age, friend], metaclass = UndoableCollisionAvoidingCountingClass)
 
 @defmethod print_object(p::AnotherPerson, io) =
     print(io, "[$(p.name), $(p.age)$(ismissing(p.friend) ? "" : " with friend $(p.friend)")]")
@@ -298,7 +298,7 @@ end
     @test_throws ErrorException new(ComplexNumber, real=1, imag=2, wrong=3)
 
     # -- Test new with Defaulted Slot --
-    @defclass(ComplexNumberDefaulted, [], [real=0, imag=2])
+    @defclass(ComplexNumberDefaulted, [], [real = 0, imag = 2])
 
     @test new(ComplexNumberDefaulted, imag=2).real === 0
 end
@@ -380,8 +380,8 @@ end
     @test ComplexNumber.cpl == [ComplexNumber, Object, Top]
     @test ComplexNumber.direct_superclasses == [Object]
 
-    @test ComplexNumber.direct_slots == [:real, :imag]
-    @test ComplexNumber.slots == [:real, :imag]
+    @test ComplexNumber.direct_slots == sort([:real, :imag])
+    @test ComplexNumber.slots == sort([:real, :imag])
 
     @test ComplexNumber.defaulted == Dict{Symbol,Any}()
 
@@ -522,9 +522,7 @@ end
 @testset "2.16.2 The Compute Slots Protocol" begin
     # -- Test CSP with Collision AvoidCollisionClass --
     @test class_slots(FooBar) == [:a, :d, :a, :b, :b, :c]
-
-    
-    @test_throws ErrorException @defclass(FooBar, [Foo, Bar], [a, d], metaclass=AvoidCollisionClass)
+    @test_throws ErrorException @defclass(FooBar, [Foo, Bar], [a, d], metaclass = AvoidCollisionClass)
 end
 
 @testset "2.16.3 Slot Access Protocol" begin
@@ -566,19 +564,20 @@ end
 
 @testset "2.16.4 Class Precedence List Protocol" begin
     # -- Test CPLP with Flavors Example --
-    @defclass(A, [], [], metaclass=FlavorsClass)
-    @defclass(B, [], [], metaclass=FlavorsClass)
-    @defclass(C, [], [], metaclass=FlavorsClass)
-    @defclass(D, [A, B], [], metaclass=FlavorsClass)
-    @defclass(E, [A, C], [], metaclass=FlavorsClass)
-    @defclass(F, [D, E], [], metaclass=FlavorsClass)
+    @defclass(A, [], [], metaclass = FlavorsClass)
+    @defclass(B, [], [], metaclass = FlavorsClass)
+    @defclass(C, [], [], metaclass = FlavorsClass)
+    @defclass(D, [A, B], [], metaclass = FlavorsClass)
+    @defclass(E, [A, C], [], metaclass = FlavorsClass)
+    @defclass(F, [D, E], [], metaclass = FlavorsClass)
 
     @test compute_cpl(F) == [F, D, A, B, E, C, Object, Top]
 end
 
 @testset "2.17 Multiple Meta-Class Inheritance" begin
     # -- Test MMCI with Undoable Collision Avoiding Counting Class --
-    @test_throws ErrorException @defclass(AnotherPerson, [NamedThing], [name], metaclass=UndoableCollisionAvoidingCountingClass)
+    @test_throws ErrorException @defclass(AnotherPerson, [NamedThing], [name],
+        metaclass = UndoableCollisionAvoidingCountingClass)
 
     p0 = new(AnotherPerson, name="John", age=21)
     p1 = new(AnotherPerson, name="Paul", age=23)
